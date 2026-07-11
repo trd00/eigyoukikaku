@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>営業報告フォーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+  body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: #f8fafc; }
+  .item-card { animation: fadeIn 0.3s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* 単価・金額のスピナー（上下矢印）を消す */
+  .no-spinner::-webkit-outer-spin-button,
+  .no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .no-spinner {
+    -moz-appearance: textfield;
+  }
+</style>
+</head>
+<body class="min-h-screen py-8 px-4 sm:px-6 lg:px-8 flex justify-center items-start">
+
+    <div class="w-full max-w-4xl bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+
+        <div id="headerArea" class="bg-slate-800 px-8 py-8 text-center transition-colors duration-500">
+            <h1 class="text-3xl font-bold text-white tracking-tight">スマート営業報告</h1>
+            <p class="text-slate-300 mt-2 text-sm font-medium">スマホからサクッと入力・自動集計</p>
+        </div>
+
+        <div class="p-6 md:p-8">
+            <div id="messageArea" class="hidden mb-6 p-4 rounded-xl border flex items-start"></div>
+
+            <form id="reportForm" class="space-y-8">
+
+                <div class="flex flex-col sm:flex-row gap-3 justify-center bg-slate-50 p-4 rounded-xl">
+                    <label class="relative flex-1 cursor-pointer">
+                        <input type="radio" name="reportType" value="受注" checked class="peer sr-only" onchange="updateTheme()">
+                        <div class="text-center py-3 px-4 rounded-lg border-2 border-slate-200 bg-white font-bold text-slate-600 peer-checked:border-orange-500 peer-checked:bg-orange-50 peer-checked:text-orange-700 transition-all shadow-sm">
+                            🟧 受注
+                        </div>
+                    </label>
+                    <label class="relative flex-1 cursor-pointer">
+                        <input type="radio" name="reportType" value="見積後日フォロー" class="peer sr-only" onchange="updateTheme()">
+                        <div class="text-center py-3 px-4 rounded-lg border-2 border-slate-200 bg-white font-bold text-slate-600 peer-checked:border-sky-500 peer-checked:bg-sky-50 peer-checked:text-sky-700 transition-all shadow-sm">
+                            🟦 見積後日フォロー
+                        </div>
+                    </label>
+                    <label class="relative flex-1 cursor-pointer">
+                        <input type="radio" name="reportType" value="受注なし" class="peer sr-only" onchange="updateTheme()">
+                        <div class="text-center py-3 px-4 rounded-lg border-2 border-slate-200 bg-white font-bold text-slate-600 peer-checked:border-green-500 peer-checked:bg-green-50 peer-checked:text-green-700 transition-all shadow-sm">
+                            🟩 受注なし
+                        </div>
+                    </label>
+                </div>
+
+<div class="flex flex-col sm:flex-row gap-3 justify-center bg-slate-50 p-4 rounded-xl">
+    <label class="relative flex-1 cursor-pointer">
+        <input type="radio" name="occasionType" value="キャンペーン" checked class="peer sr-only" onchange="toggleCampaignField()">
+        <div class="text-center py-2.5 px-3 rounded-lg border-2 border-slate-200 bg-white font-bold text-sm text-slate-600 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:text-emerald-700 transition-all shadow-sm">
+            🎯 キャンペーン
+        </div>
+    </label>
+    <label class="relative flex-1 cursor-pointer">
+        <input type="radio" name="occasionType" value="同行販売" class="peer sr-only" onchange="toggleCampaignField()">
+        <div class="text-center py-2.5 px-3 rounded-lg border-2 border-slate-200 bg-white font-bold text-sm text-slate-600 peer-checked:border-violet-500 peer-checked:bg-violet-50 peer-checked:text-violet-700 transition-all shadow-sm">
+            🤝 同行販売
+        </div>
+    </label>
+    <label class="relative flex-1 cursor-pointer">
+        <input type="radio" name="occasionType" value="展示会" class="peer sr-only" onchange="toggleCampaignField()">
+        <div class="text-center py-2.5 px-3 rounded-lg border-2 border-slate-200 bg-white font-bold text-sm text-slate-600 peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700 transition-all shadow-sm">
+    🏢 展示会
+</div>
+</label>
+</div>
+<div id="campaignNameWrap" class="hidden mt-3">
+    <label class="block text-sm font-semibold text-slate-700">キャンペーン名 <span class="text-rose-500">*</span></label>
+    <select id="campaignName" class="mt-1 block w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500">
+        <option value="">-- 選択してください --</option>
+    </select>
+</div>
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">基本情報</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700">日時 <span class="text-rose-500">*</span></label>
+                            <input type="date" id="activityDate" required class="mt-1 block w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700">メーカー</label>
+                            <input type="text" id="maker" placeholder="例: ○○株式会社" class="mt-1 block w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700">営業所 <span class="text-rose-500">*</span></label>
+                            <select id="branch" required class="mt-1 block w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500">
+                                <option value="">読込中...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700">担当者 <span class="text-rose-500">*</span></label>
+                            <select id="staffName" required disabled class="mt-1 block w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500 disabled:opacity-60">
+                                <option value="">先に営業所を選択</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-semibold text-slate-700">お客様名 <span class="text-rose-500">*</span></label>
+                            <input type="text" id="customerName" required placeholder="例: 株式会社〇〇" class="mt-1 block w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500">
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between items-end mb-4 border-b pb-2">
+                        <h2 class="text-lg font-bold text-slate-800">報告内容（商品明細）</h2>
+                        <button type="button" id="addItemBtn" onclick="addItemRow()" class="text-sm bg-slate-800 text-white px-3 py-1.5 rounded hover:bg-slate-700 transition-colors">
+                            ＋ 行を追加
+                        </button>
+                    </div>
+
+                    <div id="itemsContainer" class="space-y-4">
+                        </div>
+
+                    <div id="noOrderSection" class="hidden item-card bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700">不成約理由 <span class="text-rose-500">*</span></label>
+                            <select id="noOrderReason" onchange="toggleNoOrderOther()" class="mt-1 block w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500">
+                                <option value="">-- 選択してください --</option>
+                                <option value="他メーカー使用中">他メーカー使用中</option>
+                                <option value="既に同等品を所有">既に同等品を所有</option>
+                                <option value="価格が合わない">価格が合わない</option>
+                                <option value="必要性を感じていない">必要性を感じていない</option>
+                                <option value="その他">その他（自由記述）</option>
+                            </select>
+                        </div>
+                        <div id="noOrderReasonOtherWrap" class="hidden">
+                            <label class="block text-sm font-semibold text-slate-700">理由の詳細</label>
+                            <textarea id="noOrderReasonOther" rows="2" placeholder="具体的な理由を入力" class="mt-1 block w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-6 mt-6 border-t border-slate-200">
+                    <button type="submit" id="submitBtn" class="w-full flex justify-center items-center py-4 px-4 rounded-xl text-white bg-slate-900 hover:bg-slate-800 font-bold text-lg transition-all shadow-lg">
+                        <span id="btnText">送信して集計シートに記録</span>
+                    </button>
+                </div>
+            </form>
+            <!-- 続けて入力確認モーダル -->
+<div id="continueModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full text-center">
+    <p class="text-lg font-bold text-slate-800 mb-2">続けて入力しますか？</p>
+    <p class="text-sm text-slate-500 mb-6">「はい」を選ぶとお客様名を残します</p>
+    <div class="flex gap-3">
+      <button type="button" onclick="handleContinue(false)" class="flex-1 py-3 rounded-xl border-2 border-slate-200 font-bold text-slate-600 hover:bg-slate-50">いいえ</button>
+      <button type="button" onclick="handleContinue(true)" class="flex-1 py-3 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800">はい</button>
+    </div>
+  </div>
+</div>
+        </div>
+    </div>
+
+    <template id="itemTemplate">
+        <div class="item-card bg-slate-50 border border-slate-200 rounded-xl p-4 relative">
+            <button type="button" onclick="this.closest('.item-card').remove()" class="absolute top-3 right-3 text-slate-400 hover:text-rose-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 mt-2">
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-slate-500">品番</label>
+                    <input type="text" name="productNo" class="mt-1 w-full px-3 py-2 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-slate-500">
+                </div>
+                <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-500">商品名 <span class="text-rose-500">*</span></label>
+                    <input type="text" name="product" required class="mt-1 w-full px-3 py-2 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-slate-500">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-slate-500">数量 <span class="text-rose-500">*</span></label>
+                    <input type="number" name="quantity" required min="1" value="1" oninput="calcTotal(this)" class="mt-1 w-full px-3 py-2 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-slate-500 text-right no-spinner">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-slate-500">単価</label>
+                    <input type="number" name="price" oninput="calcTotal(this)" class="mt-1 w-full px-3 py-2 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-slate-500 text-right no-spinner">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-slate-500 whitespace-nowrap">金額（自動）</label>
+                    <input type="number" name="amount" readonly class="mt-1 w-full px-3 py-2 border border-transparent bg-slate-200 rounded text-sm text-slate-700 font-bold text-right no-spinner">
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        let staffData = {};
+        let campaignList = [];
+        const branchSelect = document.getElementById('branch');
+        const staffSelect = document.getElementById('staffName');
+
+        // テーマカラーの変更（受注=橙／見積=水色／受注なし=緑）＋受注なしUIの出し分け
+        function updateTheme() {
+            const type = document.querySelector('input[name="reportType"]:checked').value;
+            const header = document.getElementById('headerArea');
+            if (type === '受注') {
+                header.className = 'bg-orange-600 px-8 py-8 text-center transition-colors duration-500';
+            } else if (type === '見積後日フォロー') {
+                header.className = 'bg-sky-600 px-8 py-8 text-center transition-colors duration-500';
+            } else {
+                header.className = 'bg-green-600 px-8 py-8 text-center transition-colors duration-500';
+            }
+            // 受注なし選択で商品明細を隠し、不成約理由を出す
+            applyNoOrderUI(type === '受注なし');
+        }
+
+        // 受注なしUIの出し分け（旧チェックボックスの役割をドロップダウンに移管）
+        function applyNoOrderUI(isNoOrder) {
+            document.getElementById('itemsContainer').classList.toggle('hidden', isNoOrder);
+            document.getElementById('addItemBtn').classList.toggle('hidden', isNoOrder);
+            document.getElementById('noOrderSection').classList.toggle('hidden', !isNoOrder);
+            document.querySelectorAll('#itemsContainer [required]').forEach(el => {
+                el.required = !isNoOrder;
+            });
+        }
+
+        // 行の追加
+        function addItemRow() {
+            const template = document.getElementById('itemTemplate');
+            const clone = template.content.cloneNode(true);
+            document.getElementById('itemsContainer').appendChild(clone);
+        }
+
+// 機会の種類でキャンペーンが選ばれた時、キャンペーン名欄を表示
+function toggleCampaignField() {
+    const selected = document.querySelector('input[name="occasionType"]:checked').value;
+    const isCampaign = (selected === 'キャンペーン');
+    document.getElementById('campaignNameWrap').classList.toggle('hidden', !isCampaign);
+    document.getElementById('campaignName').required = isCampaign;
+}
+
+// キャンペーン名ドロップダウンの中身を埋める
+function populateCampaignDropdown() {
+    const select = document.getElementById('campaignName');
+    select.innerHTML = '<option value="">-- 選択してください --</option>';
+    campaignList.forEach(name => {
+        select.appendChild(new Option(name, name));
+    });
+}
+        // 不成約理由「その他」選択時に自由記述欄を出す
+        function toggleNoOrderOther() {
+            const reason = document.getElementById('noOrderReason').value;
+            document.getElementById('noOrderReasonOtherWrap').classList.toggle('hidden', reason !== 'その他');
+        }
+
+        // 受注なし関連UIを初期状態にリセット
+        function resetNoOrderUI() {
+            document.getElementById('noOrderReason').value = '';
+            document.getElementById('noOrderReasonOther').value = '';
+            document.getElementById('noOrderReasonOtherWrap').classList.add('hidden');
+        }
+
+        // 続けて入力するか選択された時の処理
+        function handleContinue(keepCustomer) {
+          if (!keepCustomer) {
+            document.getElementById('customerName').value = '';
+          }
+          document.getElementById('continueModal').classList.add('hidden');
+        }
+
+        // 金額の自動計算
+        function calcTotal(element) {
+            const card = element.closest('.item-card');
+            const qty = card.querySelector('input[name="quantity"]').value || 0;
+            const price = card.querySelector('input[name="price"]').value || 0;
+            card.querySelector('input[name="amount"]').value = Math.floor(qty * price);
+        }
+
+        // 初期化処理
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('activityDate').valueAsDate = new Date();
+            updateTheme();
+            toggleCampaignField();
+            addItemRow(); // 最初から1行出しておく
+
+           google.script.run.withSuccessHandler(function(data) {
+    staffData = data.branches;
+    campaignList = data.campaigns;
+    branchSelect.innerHTML = '<option value="">-- 選択してください --</option>';
+    const branchOrder = ["本社", "玖珂", "防府", "大野", "周南", "山口", "宇部", "柳井", "下関"];
+
+    branchOrder.forEach(branch => {
+        if (staffData[branch]) branchSelect.appendChild(new Option(branch, branch));
+    });
+    for (const branch in staffData) {
+        if (!branchOrder.includes(branch)) branchSelect.appendChild(new Option(branch, branch));
+    }
+
+    populateCampaignDropdown();
+}).getSettings();
+
+        // 営業所選択時の連動
+        branchSelect.addEventListener('change', function() {
+            staffSelect.innerHTML = '<option value="">-- 担当者を選択 --</option>';
+            if (this.value && staffData[this.value]) {
+                staffData[this.value].forEach(name => staffSelect.appendChild(new Option(name, name)));
+                staffSelect.disabled = false;
+                staffSelect.classList.replace('bg-slate-100', 'bg-white');
+            } else {
+                staffSelect.innerHTML = '<option value="">先に営業所を選択</option>';
+                staffSelect.disabled = true;
+                staffSelect.classList.replace('bg-white', 'bg-slate-100');
+            }
+        });
+// input欄でのエンターキー誤送信を防止（textareaの改行は許可）
+  document.getElementById('reportForm').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+      e.preventDefault();
+    }
+  });
+        // 送信処理
+        document.getElementById('reportForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            const msgArea = document.getElementById('messageArea');
+
+            const reportType = document.querySelector('input[name="reportType"]:checked').value;
+            const isNoOrder = (reportType === '受注なし');
+            let items = [];
+            let noOrderReason = '';
+
+            // ★ここで「共通のお客様名」を先に取得しておく
+            const currentCustomer = document.getElementById('customerName').value;
+
+            if (isNoOrder) {
+                // 受注なし：不成約理由のチェックのみ行う
+                const reasonSelect = document.getElementById('noOrderReason').value;
+                if (!reasonSelect) {
+                    alert('不成約理由を選択してください。');
+                    return;
+                }
+                if (reasonSelect === 'その他') {
+                    const otherText = document.getElementById('noOrderReasonOther').value.trim();
+                    if (!otherText) {
+                        alert('その他の理由を入力してください。');
+                        return;
+                    }
+                    noOrderReason = otherText;
+                } else {
+                    noOrderReason = reasonSelect;
+                }
+            } else {
+                // 通常：商品明細データの収集
+                document.querySelectorAll('.item-card').forEach(card => {
+                    if (!card.querySelector('input[name="product"]')) return;
+                    items.push({
+                        customer: currentCustomer,
+                        productNo: card.querySelector('input[name="productNo"]').value,
+                        product: card.querySelector('input[name="product"]').value,
+                        quantity: card.querySelector('input[name="quantity"]').value,
+                        price: card.querySelector('input[name="price"]').value,
+                        amount: card.querySelector('input[name="amount"]').value
+                    });
+                });
+
+                if (items.length === 0) {
+                    alert('報告内容が1件も入力されていません。');
+                    return;
+                }
+            }
+
+            const formData = {
+                reportType: reportType,
+                date: document.getElementById('activityDate').value,
+                maker: document.getElementById('maker').value,
+                branch: branchSelect.value,
+                staff: staffSelect.value,
+                customer: document.getElementById('customerName').value,
+                occasionType: document.querySelector('input[name="occasionType"]:checked').value,
+                isNoOrder: isNoOrder,
+                campaignName: document.getElementById('campaignName').value,
+                noOrderReason: noOrderReason,
+                items: items
+            };
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '送信中...';
+            msgArea.classList.add('hidden');
+
+            google.script.run.withSuccessHandler(function(res) {
+                msgArea.classList.remove('hidden');
+                if (res.success) {
+                    msgArea.className = 'mb-6 p-4 rounded-xl border bg-emerald-50 border-emerald-200 text-emerald-800';
+                    msgArea.innerHTML = '<strong>送信完了！</strong><br>集計シートにデータを追加しました。';
+
+                    document.getElementById('itemsContainer').innerHTML = '';
+                    addItemRow();
+                    resetNoOrderUI();
+
+                    document.getElementById('continueModal').classList.remove('hidden');
+                } else {
+                    msgArea.className = 'mb-6 p-4 rounded-xl border bg-rose-50 border-rose-200 text-rose-800';
+                    msgArea.innerHTML = '<strong>エラー</strong><br>' + res.message;
+                }
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '送信して集計シートに記録';
+            }).saveReport(formData);
+        });
+    });
+    </script>
+</body>
+</html>
