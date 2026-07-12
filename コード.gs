@@ -233,7 +233,7 @@ function getDashboardData() {
     };
   }).sort(function(a, b) { return b.value - a.value; });
 
-  // --- 売れ筋商品TOP3（登場回数）---
+  // --- 売れ筋商品TOP5（登場回数）---
   const prodMap = {};
   orderRows.forEach(function(r) {
     const p = String(r[8] || '').trim();
@@ -242,7 +242,7 @@ function getDashboardData() {
   });
   const products = Object.keys(prodMap).map(function(name) {
     return { name: name, count: prodMap[name] };
-  }).sort(function(a, b) { return b.count - a.count; }).slice(0, 3);
+  }).sort(function(a, b) { return b.count - a.count; }).slice(0, 5);
 
   // --- イベント種別（受注件数）---
   const evOrder = ['キャンペーン', '同行販売', '展示会'];

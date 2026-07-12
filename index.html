@@ -220,7 +220,9 @@
             document.getElementById('itemsContainer').classList.toggle('hidden', isNoOrder);
             document.getElementById('addItemBtn').classList.toggle('hidden', isNoOrder);
             document.getElementById('noOrderSection').classList.toggle('hidden', !isNoOrder);
-            document.querySelectorAll('#itemsContainer [required]').forEach(el => {
+            // 商品明細は受注なし時に非表示になるため、隠れた必須フィールドで送信がブロックされないよう
+            // 商品名・数量の required を名前で確実に切り替える（両方向で動くよう属性ではなく name で指定）
+            document.querySelectorAll('#itemsContainer input[name="product"], #itemsContainer input[name="quantity"]').forEach(el => {
                 el.required = !isNoOrder;
             });
         }
@@ -230,6 +232,13 @@
             const template = document.getElementById('itemTemplate');
             const clone = template.content.cloneNode(true);
             document.getElementById('itemsContainer').appendChild(clone);
+            // 受注なしモード中に追加された行は非表示なので、必須属性を外して送信ブロックを防ぐ
+            const isNoOrder = document.querySelector('input[name="reportType"]:checked').value === '受注なし';
+            if (isNoOrder) {
+                document.querySelectorAll('#itemsContainer input[name="product"], #itemsContainer input[name="quantity"]').forEach(el => {
+                    el.required = false;
+                });
+            }
         }
 
 // 機会の種類でキャンペーンが選ばれた時、キャンペーン名欄を表示
