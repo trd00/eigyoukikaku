@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>営業実績ボード - 岩国維新志士</title>
+<link href="https://fonts.googleapis.com/css2?family=Yomogi&family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --board: #fefefe; --line: #d8dde2;
+    --marker-blue: #2e6fd6; --marker-red: #e0445a;
+--marker-green: #2ea86c; --marker-black: #2b2b2b; --tape: #f4e07a; --marker-purple: #8b5cf6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Noto Sans JP', sans-serif; background: #cfd6dc; min-height: 100vh; padding: 28px 16px 60px; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .board {
+    background: var(--board); border-radius: 10px;
+    box-shadow: 0 10px 0 rgba(0,0,0,0.08), 0 18px 40px rgba(0,0,0,0.18);
+    border: 10px solid #e8eaec; position: relative; padding: 28px 26px 26px;
+    background-image: repeating-linear-gradient(0deg, transparent, transparent 38px, rgba(0,0,0,0.025) 39px);
+  }
+  .tape { position: absolute; width: 56px; height: 22px; background: var(--tape); opacity: 0.85; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+  .tape.t1 { top: -10px; left: 40px; transform: rotate(-6deg); }
+  .tape.t2 { top: -10px; right: 50px; transform: rotate(5deg); }
+  .board-header {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 3px solid var(--marker-black); padding-bottom: 10px; margin-bottom: 20px;
+    font-family: 'Yomogi', cursive;
+  }
+  .board-header h1 { font-size: 28px; color: var(--marker-black); margin: 0; font-weight: 700; }
+  .board-header .sub { font-size: 14px; color: var(--marker-blue); margin-top: 4px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .refresh-btn {
+    font-family: 'Yomogi', cursive; font-size: 13px; font-weight: 700;
+    background: var(--marker-blue); color: #fff; border: none;
+    border-radius: 8px; padding: 8px 14px; cursor: pointer;
+    box-shadow: 0 3px 0 #1f56ad; transition: transform .1s, box-shadow .1s;
+  }
+  .refresh-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #1f56ad; }
+  .refresh-btn:disabled { opacity: 0.6; cursor: default; }
+  .refresh-btn.spinning { pointer-events: none; }
+  .refresh-btn .ic { display: inline-block; }
+  .refresh-btn.spinning .ic { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .date-badge {
+    font-size: 13px; color: #555; background: #fff8d8;
+    border: 2px solid var(--tape); border-radius: 6px; padding: 4px 12px; transform: rotate(-2deg);
+  }
+  .kpi-section { display: flex; gap: 18px; margin-bottom: 28px; align-items: flex-start; }
+  .kpi-char { flex: 0 0 100px; text-align: center; }
+  .kpi-char img { width: 100%; max-width: 100px; }
+  .kpi-char .speech {
+    font-family: 'Yomogi', cursive; font-size: 11px; color: var(--marker-red);
+    background: #fff; border: 2px solid var(--marker-red); border-radius: 14px;
+    padding: 4px 8px; margin-bottom: 6px; position: relative; display: inline-block;
+  }
+.kpi-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .kpi-box { border: 3px solid var(--marker-black); border-radius: 10px; padding: 14px 10px; text-align: center; position: relative; background: #fff; }
+  .kpi-box .num { font-family: 'Yomogi', cursive; font-size: 32px; font-weight: 700; }
+  .kpi-box.blue .num { color: var(--marker-blue); }
+  .kpi-box.red .num { color: var(--marker-red); }
+  .kpi-box.green .num { color: var(--marker-green); }
+  .kpi-box.purple .num { color: var(--marker-purple); }
+  .kpi-box .lbl { font-size: 11px; color: #555; margin-top: 2px; font-weight: 600; }
+  .underline { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 60%; height: 4px; border-radius: 2px; }
+  .kpi-box.blue .underline { background: var(--marker-blue); opacity: 0.4; }
+  .kpi-box.red .underline { background: var(--marker-red); opacity: 0.4; }
+  .kpi-box.green .underline { background: var(--marker-green); opacity: 0.4; }
+  .kpi-box.purple .underline { background: var(--marker-purple); opacity: 0.4; }
+  .kpi-box { padding-bottom: 22px; }
+    .kpi-goal { font-size: 10px; color: #888; margin-top: 6px; font-family: 'Yomogi', cursive; position: relative; z-index: 1; }
+  .main-area { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; }
+  @media (max-width: 760px) {
+    .main-area { grid-template-columns: 1fr; }
+    .kpi-section { flex-direction: column; align-items: center; }
+    .kpi-char { flex: none; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); width: 100%; }
+  }
+  .rank-section { border: 3px dashed var(--marker-blue); border-radius: 12px; padding: 16px; position: relative; }
+  .rank-section .section-title { font-family: 'Yomogi', cursive; font-size: 18px; color: var(--marker-blue); margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .rank-with-char { display: flex; gap: 14px; }
+  .rank-char-col { flex: 0 0 84px; text-align: center; }
+  .rank-char-col img { width: 100%; max-width: 84px; }
+  .rank-char-col .speech { font-family: 'Yomogi', cursive; font-size: 10.5px; color: var(--marker-blue); background: #fff; border: 2px solid var(--marker-blue); border-radius: 12px; padding: 4px 6px; margin-bottom: 6px; display: inline-block; }
+  .rank-list { flex: 1; }
+  .rr { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 2px dotted #ddd; }
+  .rr:last-child { border-bottom: none; }
+  .rr .medal { width: 20px; text-align: center; font-size: 15px; }
+  .rr .bname { flex: 0 0 42px; font-size: 13px; font-weight: 700; font-family: 'Yomogi', cursive; }
+  .rr .bar-bg { flex: 1; height: 10px; background: #eee; border-radius: 5px; overflow: hidden; display: flex; }
+.rr .bar-fill-approach { height: 100%; background: var(--marker-red); transition: width 1.3s cubic-bezier(.2,.9,.25,1); }
+  .rr .bar-fill { height: 100%; border-radius: 5px; transition: width 1.3s cubic-bezier(.2,.9,.25,1); }
+  .rr .val { width: auto; min-width: 52px; text-align: right; font-family: 'Yomogi', cursive; font-size: 12px; font-weight: 700; line-height: 1.5; }
+  .rr .val .v-order { color: var(--marker-blue); }
+  .rr .val .v-appr { color: var(--marker-red); }
+  .data-section { border: 3px dashed var(--marker-green); border-radius: 12px; padding: 16px; }
+  .data-section .section-title { font-family: 'Yomogi', cursive; font-size: 18px; color: var(--marker-green); margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .data-with-char { display: flex; gap: 14px; margin-bottom: 16px; }
+  .data-char-col { flex: 0 0 84px; text-align: center; }
+  .data-char-col img { width: 100%; max-width: 84px; }
+  .data-char-col .speech { font-family: 'Yomogi', cursive; font-size: 10.5px; color: var(--marker-green); background: #fff; border: 2px solid var(--marker-green); border-radius: 12px; padding: 4px 6px; margin-bottom: 6px; display: inline-block; }
+  .product-list { flex: 1; }
+  .pr { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 2px dotted #ddd; }
+  .pr:last-child { border-bottom: none; }
+  .pr .prank { width: 22px; height: 22px; border-radius: 50%; background: var(--marker-green); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .pr .pname { flex: 1; font-size: 13px; font-weight: 600; }
+  .pr .pcount { font-family: 'Yomogi', cursive; font-size: 14px; font-weight: 700; color: var(--marker-green); }
+  .event-section { margin-top: 18px; border-top: 3px solid var(--marker-black); padding-top: 14px; }
+  .event-section .section-title { font-family: 'Yomogi', cursive; font-size: 16px; color: var(--marker-black); margin: 0 0 10px; }
+  .event-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .ev-box { text-align: center; border: 2px solid #ddd; border-radius: 8px; padding: 10px; }
+  .ev-box .icon { font-size: 20px; }
+  .ev-box .name { font-size: 11px; color: #555; font-weight: 600; margin-top: 2px; }
+  .ev-box .num { font-family: 'Yomogi', cursive; font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .footer-note { text-align: center; font-size: 11px; color: #777; margin-top: 16px; font-family: 'Yomogi', cursive; }
+  .loading { text-align: center; padding: 40px 0; font-family: 'Yomogi', cursive; color: #888; font-size: 15px; }
+  .empty { text-align: center; color: #aaa; font-size: 12px; padding: 14px; font-family: 'Yomogi', cursive; }
+  .overlay { position: fixed; inset: 0; background: rgba(40,40,40,0.6); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .overlay.show { display: flex; }
+  .modal { background: #fff; border-radius: 14px; padding: 22px; max-width: 360px; width: 100%; border: 4px solid var(--marker-black); font-family: 'Noto Sans JP', sans-serif; }
+  .modal h3 { font-family: 'Yomogi', cursive; margin: 0 0 4px; font-size: 20px; color: var(--marker-blue); }
+  .modal .msub { font-size: 11px; color: #777; margin-bottom: 14px; }
+  .sr { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+  .sname { flex: 0 0 60px; font-weight: 700; }
+  .sbg { flex: 1; height: 9px; background: #eee; border-radius: 5px; overflow: hidden; }
+  .sfill { height: 100%; border-radius: 5px; background: var(--marker-blue); }
+  .sfill-appr { height: 100%; background: var(--marker-red); }
+  .sbg { display: flex; }
+  .sval { width: 26px; text-align: right; font-weight: 700; font-family: 'Yomogi', cursive; }
+  .close-btn { margin-top: 16px; width: 100%; padding: 10px; border-radius: 8px; border: 2px solid var(--marker-black); background: #fff; color: var(--marker-black); font-weight: 700; cursor: pointer; font-size: 13px; font-family: 'Yomogi', cursive; }
+  .rr.clickable { cursor: pointer; }
+  .rr.clickable:hover { background: #f5f8ff; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="board">
+    <span class="tape t1"></span>
+    <span class="tape t2"></span>
+    <div class="board-header">
+      <div>
+        <h1>営業実績ボード</h1>
+        <div class="sub">岩国維新志士からの報告です！</div>
+      </div>
+      <div class="header-right">
+        <button class="refresh-btn" id="refreshBtn" onclick="loadData(true)"><span class="ic">🔄</span> 更新</button>
+        <div class="date-badge" id="dateBadge">読込中...</div>
+      </div>
+    </div>
+    <div class="kpi-section">
+      <div class="kpi-char">
+        <div class="speech">今月も<br>絶好調や！</div>
+        <div style="font-size:64px;line-height:1;margin-top:4px;" role="img" aria-label="高杉くん">🧑</div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-box blue"><div class="num" id="kpiTotal">0</div><div class="lbl">総販売実績(台)</div><div class="underline"></div><div class="kpi-goal" id="goalTotal"></div></div>
+        <div class="kpi-box red"><div class="num" id="kpiApproach">0</div><div class="lbl">アプローチ件数</div><div class="underline"></div><div class="kpi-goal" id="goalApproach"></div></div>
+        <div class="kpi-box purple"><div class="num" id="kpiOrderCount">0</div><div class="lbl">受注件数</div><div class="underline"></div></div>
+        <div class="kpi-box green"><div class="num" id="kpiRate">0%</div><div class="lbl">成約率</div><div class="underline"></div></div>
+      </div>
+    </div>
+    <div class="main-area">
+      <div class="rank-section">
+        <p class="section-title">🏆 営業所ランキング発表！</p>
+        <div class="rank-with-char">
+          <div class="rank-char-col">
+            <div class="speech">タップして<br>くわしく見て<br>みぃ</div>
+            <div style="font-size:52px;line-height:1;margin-top:4px;" role="img" aria-label="桂くん">🧑‍💼</div>
+          </div>
+          <div class="rank-list" id="rankList"><div class="loading">読込中...</div></div>
+        </div>
+      </div>
+      <div class="data-section">
+        <p class="section-title">📚 売れ筋商品 TOP3</p>
+        <div class="data-with-char">
+          <div class="data-char-col">
+            <div class="speech">これが<br>今月の<br>人気商品や</div>
+            <div style="font-size:52px;line-height:1;margin-top:4px;" role="img" aria-label="吉田くん">🧑‍🔬</div>
+          </div>
+          <div class="product-list" id="productList"><div class="loading">読込中...</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="event-section">
+      <p class="section-title">イベント種別の実績</p>
+      <div class="event-grid" id="eventGrid"></div>
+    </div>
+    <div class="footer-note" id="footerNote">読込中...</div>
+  </div>
+</div>
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <div class="msub">担当者別 受注 / 訪問（今月）</div>
+    <div id="staffList"></div>
+    <button class="close-btn" onclick="closeDetail()">閉じる</button>
+  </div>
+</div>
+<script>
+  const barColors = ['#2e6fd6','#e0445a','#2ea86c','#f4a93d','#9b59d0','#1abc9c','#e67e22','#3498db','#c0392b'];
+  const medals = ['🥇','🥈','🥉'];
+  let branchesData = [];
+  // ページ読み込み時に自動でデータ取得
+  window.addEventListener('load', function() {
+    loadData(false);
+  });
+
+  // データ取得（初回もボタンも共通で呼ぶ）
+  function loadData(animate) {
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.add('spinning');
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function(data){ render(data, animate); btn.classList.remove('spinning'); btn.disabled = false; })
+      .withFailureHandler(function(err){ onError(err); btn.classList.remove('spinning'); btn.disabled = false; })
+      .getDashboardData();
+  }
+
+  function onError(err) {
+    document.getElementById('footerNote').textContent = 'データ取得エラー: ' + err.message;
+  }
+
+  function render(data, animate) {
+    if (data.error) { document.getElementById('footerNote').textContent = data.error; return; }
+    branchesData = data.branches || [];
+    document.getElementById('dateBadge').textContent = data.yearMonth;
+    document.getElementById('footerNote').textContent = '※ ' + data.yearMonth + 'の実データ（受注ベース）／最終更新 ' + nowStr();
+
+    // 営業所ランキング
+    const rankList = document.getElementById('rankList');
+    rankList.innerHTML = '';
+    if (branchesData.length === 0) {
+      rankList.innerHTML = '<div class="empty">今月の受注データはまだありません</div>';
+    } else {
+      const maxVal = Math.max.apply(null, branchesData.map(function(b){ return b.value + b.approach; }));
+branchesData.forEach(function(b, i) {
+  const row = document.createElement('div');
+  row.className = 'rr clickable';
+  row.onclick = function(){ openDetail(b); };
+  const total = b.value + b.approach;
+  const totalPct = maxVal > 0 ? (total/maxVal)*100 : 0;
+  const orderPct = total > 0 ? (b.value/total)*totalPct : 0;
+  const approachPct = total > 0 ? (b.approach/total)*totalPct : 0;
+  row.innerHTML =
+    '<div class="medal">' + (i < 3 ? medals[i] : (i+1)) + '</div>' +
+    '<div class="bname">' + b.name + '</div>' +
+    '<div class="bar-bg"><div class="bar-fill" data-w="' + orderPct + '" style="width:' + (animate ? 0 : orderPct) + '%;background:#2e6fd6;"></div>' +
+    '<div class="bar-fill-approach" data-w="' + approachPct + '" style="width:' + (animate ? 0 : approachPct) + '%;"></div></div>' +
+    '<div class="val"><span class="v-order">受注 ' + b.value + '</span><br><span class="v-appr">訪問 ' + b.approach + '</span></div>';
+ rankList.appendChild(row);
+});
+    }
+
+    // 売れ筋商品TOP3
+    // 売れ筋商品TOP3
+    const productList = document.getElementById('productList');
+    productList.innerHTML = '';
+    const products = data.products || [];
+    if (products.length === 0) {
+      productList.innerHTML = '<div class="empty">今月の受注データはまだありません</div>';
+    } else {
+      products.forEach(function(p, i) {
+        const row = document.createElement('div');
+        row.className = 'pr';
+        row.innerHTML = '<div class="prank">' + (i+1) + '</div><div class="pname">' + p.name + '</div><div class="pcount">' + p.count + '件</div>';
+        productList.appendChild(row);
+      });
+    }
+
+    // イベント種別
+    const eventGrid = document.getElementById('eventGrid');
+    eventGrid.innerHTML = '';
+    (data.events || []).forEach(function(e) {
+      const box = document.createElement('div');
+      box.className = 'ev-box';
+      box.innerHTML = '<div class="icon">' + e.icon + '</div><div class="name">' + e.name + '</div><div class="num">' + e.value + '件</div>';
+      eventGrid.appendChild(box);
+    });
+
+    // KPI：アニメありなら動かす、なしなら即表示
+    if (animate) {
+      setTimeout(function() {
+        document.querySelectorAll('.bar-fill, .bar-fill-approach').forEach(function(el){ el.style.width = el.dataset.w + '%'; });
+        countUp(document.getElementById('kpiTotal'), data.kpi.total, 1300, '');
+        countUp(document.getElementById('kpiApproach'), data.kpi.approach, 1300, '');
+        countUp(document.getElementById('kpiOrderCount'), data.kpi.orderCount, 1300, '');
+        countUp(document.getElementById('kpiRate'), data.kpi.rate, 1300, '%');
+      }, 150);
+    } else {
+      document.getElementById('kpiTotal').textContent = data.kpi.total;
+      document.getElementById('kpiApproach').textContent = data.kpi.approach;
+      document.getElementById('kpiOrderCount').textContent = data.kpi.orderCount;
+      document.getElementById('kpiRate').textContent = data.kpi.rate + '%';
+    }
+    // KPI目標＆達成率を表示
+    const g = data.goal || {};
+    const gt = document.getElementById('goalTotal');
+    const ga = document.getElementById('goalApproach');
+    if (g.sales > 0) {
+      gt.innerHTML = '目標 ' + g.sales + ' / <span class="hit">' + g.salesPct + '%</span>';
+    } else {
+      gt.textContent = '目標未設定';
+    }
+    if (g.approach > 0) {
+      ga.innerHTML = '目標 ' + g.approach + ' / <span class="hit">' + g.approachPct + '%</span>';
+    } else {
+      ga.textContent = '目標未設定';
+    }
+  }
+
+  function nowStr() {
+    const d = new Date();
+    const p = function(n){ return (n<10?'0':'') + n; };
+    return p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function countUp(el, target, dur, suffix) {
+    const t0 = performance.now();
+    (function tick(now) {
+      const p = Math.min((now - t0) / dur, 1);
+      const e = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * e) + (suffix||'');
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = target + (suffix||'');
+    })(t0);
+  }
+
+  function openDetail(b) {
+    document.getElementById('mTitle').textContent = b.name + '営業所';
+    const sl = document.getElementById('staffList');
+    sl.innerHTML = '';
+    if (!b.staff || b.staff.length === 0) {
+      sl.innerHTML = '<div class="empty">担当者データなし</div>';
+    } else {
+      const mx = Math.max.apply(null, b.staff.map(function(s){ return s.v + s.a; }));
+      b.staff.forEach(function(s) {
+        const row = document.createElement('div');
+        row.className = 'sr';
+      const sTotal = s.v + s.a;
+      const sTotalPct = mx > 0 ? (sTotal/mx)*100 : 0;
+      const sOrderPct = sTotal > 0 ? (s.v/sTotal)*sTotalPct : 0;
+      const sApprPct = sTotal > 0 ? (s.a/sTotal)*sTotalPct : 0;
+      row.innerHTML = '<div class="sname">' + s.n + '</div><div class="sbg"><div class="sfill" style="width:' + sOrderPct + '%;"></div><div class="sfill-appr" style="width:' + sApprPct + '%;"></div></div><div class="sval"><span class="v-order">' + s.v + '</span> / <span class="v-appr">' + s.a + '</span></div>';
+        sl.appendChild(row);
+      });
+    }
+    document.getElementById('overlay').classList.add('show');
+  }
+  function closeDetail() { document.getElementById('overlay').classList.remove('show'); }
+
+</script>
+</body>
+</html>
