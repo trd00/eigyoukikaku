@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>車検 事前カルテ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: #f1f5f9; }
+    .fade-in { animation: fadeIn 0.35s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    /* 走行距離のスピナーを消す */
+    .no-spinner::-webkit-outer-spin-button,
+    .no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .no-spinner { -moz-appearance: textfield; }
+
+    /* 警告灯タイル：消灯＝暗い、点灯＝オレンジに光る */
+    .light-tile {
+      background: #1e293b;
+      border: 2px solid #334155;
+      transition: all .2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .light-tile .tile-icon { filter: grayscale(1) brightness(1.4); opacity: .5; transition: all .2s ease; }
+    .light-tile .tile-label { color: #cbd5e1; }
+    .light-tile.on {
+      background: #7c2d12;
+      border-color: #fb923c;
+      box-shadow: 0 0 0 3px rgba(251,146,60,.35), 0 0 22px rgba(251,146,60,.35);
+      animation: lampOn .25s ease-out;
+    }
+    .light-tile.on .tile-icon { filter: none; opacity: 1; }
+    .light-tile.on .tile-label { color: #ffedd5; }
+    @keyframes lampOn { 0% { transform: scale(.97); } 60% { transform: scale(1.02); } 100% { transform: scale(1); } }
+
+    /* 「特にない」タイルは点灯色を緑に */
+    .light-tile.tile-none.on {
+      background: #14532d;
+      border-color: #4ade80;
+      box-shadow: 0 0 0 3px rgba(74,222,128,.35), 0 0 22px rgba(74,222,128,.35);
+    }
+    .light-tile.tile-none.on .tile-label { color: #dcfce7; }
+  </style>
+</head>
+<body class="min-h-screen py-6 px-4 flex justify-center items-start">
+
+  <div class="w-full max-w-md">
+
+    <!-- ===== 入力画面 ===== -->
+    <div id="formCard" class="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+
+      <div class="bg-slate-800 px-6 py-7 text-center">
+        <div class="text-3xl mb-1">🔧</div>
+        <h1 class="text-2xl font-bold text-white tracking-tight">車検 事前カルテ</h1>
+        <p id="shopNameHeader" class="text-slate-300 mt-1 text-sm font-medium"></p>
+        <p class="text-slate-400 mt-3 text-xs leading-relaxed">
+          車検の前に、気になっていることを<br>お聞かせください（すべて任意です）
+        </p>
+      </div>
+
+      <div class="p-5 md:p-6">
+        <form id="karteForm" class="space-y-7">
+
+          <!-- ① お客さま情報 -->
+          <section>
+            <h2 class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-white text-xs">1</span>
+              お車のこと
+              <span class="text-xs font-normal text-slate-400">（任意）</span>
+            </h2>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="col-span-2">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">お名前・呼び名</label>
+                <input type="text" id="name" placeholder="例：たなかさん（空欄でもOK）"
+                  class="block w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">車種</label>
+                <input type="text" id="carModel" placeholder="例：アクア"
+                  class="block w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">ナンバー下4桁</label>
+                <input type="tel" id="plate" inputmode="numeric" maxlength="4" placeholder="例：1234"
+                  oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)"
+                  class="block w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm tracking-widest focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none">
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">走行距離（km）</label>
+                <input type="number" id="mileage" inputmode="numeric" placeholder="例：58000"
+                  class="block w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm no-spinner focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none">
+              </div>
+            </div>
+          </section>
+
+          <!-- ② 困りごと（警告灯タイル） -->
+          <section>
+            <h2 class="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-white text-xs">2</span>
+              気になること
+            </h2>
+            <p class="text-xs text-slate-400 mb-3 pl-8">当てはまるものをタップ（いくつでもOK）</p>
+
+            <div id="lightPanel" class="bg-slate-900 rounded-2xl p-3 grid grid-cols-2 gap-3">
+              <!-- タイルはJSで生成 -->
+            </div>
+          </section>
+
+          <!-- ③ 自由記入 -->
+          <section>
+            <h2 class="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-white text-xs">3</span>
+              その他ひとこと
+              <span class="text-xs font-normal text-slate-400">（任意）</span>
+            </h2>
+            <textarea id="freeText" rows="3" placeholder="例：右前のあたりから、たまに音がする気がします"
+              class="block w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none resize-none"></textarea>
+          </section>
+
+          <!-- 送信 -->
+          <button type="submit" id="submitBtn"
+            class="w-full flex justify-center items-center gap-2 py-4 rounded-xl text-white bg-orange-600 hover:bg-orange-500 active:scale-[.99] font-bold text-lg transition-all shadow-lg shadow-orange-600/20">
+            <span id="btnText">この内容で送る</span>
+          </button>
+
+          <div id="errorArea" class="hidden text-center text-sm text-rose-600 font-medium"></div>
+        </form>
+      </div>
+
+      <div class="bg-slate-50 border-t border-slate-100 px-6 py-4 text-center">
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          入力内容は車検のご提案にのみ使用します。<br>
+          ナンバーは下4桁のみ・お名前は任意です。
+        </p>
+      </div>
+    </div>
+
+    <!-- ===== お礼画面（送信後に表示） ===== -->
+    <div id="thanksCard" class="hidden bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden fade-in">
+      <div class="px-6 py-14 text-center">
+        <div class="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
+          <svg class="w-11 h-11 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+          </svg>
+        </div>
+        <h2 class="text-2xl font-bold text-slate-800 mb-2">ありがとうございます</h2>
+        <p class="text-sm text-slate-500 leading-relaxed">
+          いただいた内容をもとに、<br>スタッフが車検のご提案をいたします。<br>
+          このままお待ちください。
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // サーバー(GAS)から受け取った工場ID・工場名
+    var SHOP = '<?= shop ?>';
+    var SHOP_NAME = '<?= shopName ?>';
+
+    // 困りごと項目（お客さんに見せる言葉だけ。商材名・専門用語は一切出さない）
+    var TROUBLES = [
+      { id: 'ac',    icon: '❄️', label: 'エアコンが臭う・効きが弱い' },
+      { id: 'power', icon: '🚀', label: '加速がもたつく・パワー不足' },
+      { id: 'fuel',  icon: '⛽', label: '燃費が落ちた気がする' },
+      { id: 'heat',  icon: '🌡️', label: '水温・オーバーヒートが心配' },
+      { id: 'brake', icon: '🛑', label: 'ブレーキの効き・キーキー音' },
+      { id: 'none',  icon: '👍', label: '特に気になることはない' }
+    ];
+
+    // 工場名の表示
+    if (SHOP_NAME) {
+      document.getElementById('shopNameHeader').textContent = SHOP_NAME;
+    }
+
+    // 警告灯タイルを生成
+    var selected = {}; // id -> true
+    (function buildTiles() {
+      var panel = document.getElementById('lightPanel');
+      TROUBLES.forEach(function(t) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.id = t.id;
+        btn.className = 'light-tile rounded-xl px-3 py-4 text-center flex flex-col items-center gap-2 focus:outline-none'
+          + (t.id === 'none' ? ' tile-none col-span-2' : '');
+        btn.innerHTML =
+          '<span class="tile-icon text-3xl leading-none">' + t.icon + '</span>' +
+          '<span class="tile-label text-xs font-bold leading-snug">' + t.label + '</span>';
+        btn.addEventListener('click', function() { toggleTile(t.id); });
+        panel.appendChild(btn);
+      });
+    })();
+
+    function toggleTile(id) {
+      var isNone = (id === 'none');
+      if (isNone) {
+        // 「特にない」は排他：他を全部消して自分だけ点ける／もう一度押すと消灯
+        var turningOn = !selected['none'];
+        selected = {};
+        if (turningOn) selected['none'] = true;
+      } else {
+        // 通常項目を点けたら「特にない」は消す
+        delete selected['none'];
+        if (selected[id]) { delete selected[id]; } else { selected[id] = true; }
+      }
+      renderTiles();
+    }
+
+    function renderTiles() {
+      document.querySelectorAll('#lightPanel .light-tile').forEach(function(btn) {
+        btn.classList.toggle('on', !!selected[btn.dataset.id]);
+      });
+    }
+
+    // 送信
+    document.getElementById('karteForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var btn = document.getElementById('submitBtn');
+      var errArea = document.getElementById('errorArea');
+      errArea.classList.add('hidden');
+
+      var troubles = Object.keys(selected);
+
+      var data = {
+        shop: SHOP,
+        name: document.getElementById('name').value,
+        carModel: document.getElementById('carModel').value,
+        plate: document.getElementById('plate').value,
+        mileage: document.getElementById('mileage').value,
+        troubles: troubles,
+        freeText: document.getElementById('freeText').value
+      };
+
+      btn.disabled = true;
+      document.getElementById('btnText').textContent = '送信中...';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res && res.success) {
+            document.getElementById('formCard').classList.add('hidden');
+            document.getElementById('thanksCard').classList.remove('hidden');
+            window.scrollTo(0, 0);
+          } else {
+            errArea.textContent = (res && res.message) ? res.message : '送信に失敗しました。もう一度お試しください。';
+            errArea.classList.remove('hidden');
+            btn.disabled = false;
+            document.getElementById('btnText').textContent = 'この内容で送る';
+          }
+        })
+        .withFailureHandler(function(err) {
+          errArea.textContent = '通信エラーが発生しました。電波の良い場所で再度お試しください。';
+          errArea.classList.remove('hidden');
+          btn.disabled = false;
+          document.getElementById('btnText').textContent = 'この内容で送る';
+        })
+        .saveKarte(data);
+    });
+  </script>
+</body>
+</html>

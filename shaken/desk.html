@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>車検カルテ｜フロント確認</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: #0f172a; }
+    .fade-in { animation: fadeIn 0.35s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- ヘッダー（固定） -->
+  <header class="sticky top-0 z-10 bg-slate-900/95 backdrop-blur border-b border-slate-700 px-4 py-3">
+    <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-lg font-bold text-white truncate flex items-center gap-2">
+          <span>🔧</span><span id="shopName">フロント確認</span>
+        </h1>
+        <p class="text-xs text-slate-400">本日の事前カルテ ｜ 車検の提案づくりに</p>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="flex items-center gap-1.5 justify-end text-emerald-400 text-xs font-medium">
+          <span class="pulse-dot w-2 h-2 rounded-full bg-emerald-400"></span>自動更新中
+        </div>
+        <div id="updatedAt" class="text-[11px] text-slate-500 mt-0.5">—</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-5">
+
+    <div id="countBar" class="hidden mb-4 text-sm text-slate-400">
+      本日 <span id="count" class="text-white font-bold">0</span> 件
+    </div>
+
+    <!-- 未指定（?shop= がない）ときの案内 -->
+    <div id="noShop" class="hidden bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-xl p-5 text-sm leading-relaxed">
+      工場が指定されていません。<br>
+      URLの末尾に <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-100">&amp;shop=工場ID</code> を付けてアクセスしてください。<br>
+      例：<code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-100">…/exec?view=desk&amp;shop=tanaka</code>
+    </div>
+
+    <!-- 空のとき -->
+    <div id="emptyState" class="hidden text-center py-20">
+      <div class="text-5xl mb-3">🕐</div>
+      <p class="text-slate-300 font-medium">本日の入力はまだありません</p>
+      <p class="text-slate-500 text-sm mt-1">お客さまがQRから送信すると、ここに自動で表示されます</p>
+    </div>
+
+    <!-- カード一覧 -->
+    <div id="cardList" class="space-y-4"></div>
+
+    <p class="text-center text-[11px] text-slate-600 mt-8">
+      この画面はスタッフ用です。お客さまには見せない前提の提案情報が含まれます。
+    </p>
+  </main>
+
+  <script>
+    var SHOP = '<?= shop ?>';
+    var SHOP_NAME = '<?= shopName ?>';
+
+    // 困りごとID → 「お客さんの言葉」＋「裏で紐づく提案」＋松竹梅
+    // ※この対応表はフロント確認画面にだけ存在する。お客さま画面には一切出さない。
+    var MAP = {
+      ac:    { label: 'エアコンが臭う・効きが弱い', tier: '竹', product: 'Dr.Clean（MB-CL1 内部洗浄）＋ プレミアムフィルター PC-518S' },
+      power: { label: '加速がもたつく・パワー不足', tier: '松', product: 'BG107 RF-7 オイル添加剤' },
+      fuel:  { label: '燃費が落ちた気がする',       tier: '松', product: 'BG107 RF-7 オイル添加剤' },
+      heat:  { label: '水温・オーバーヒートが心配', tier: '松', product: 'BG546（Super Cool）クーラント　※次回交換までLLC性能を維持' },
+      brake: { label: 'ブレーキの効き・キーキー音', tier: '竹', product: 'K4PAD プレミアムパッド K-796WK' },
+      none:  { label: '特に気になることはない',     tier: '—', product: '標準の竹を丁寧にご案内' }
+    };
+
+    // 松竹梅バッジの色
+    var TIER_STYLE = {
+      '松': 'bg-amber-400/15 text-amber-300 border-amber-400/40',
+      '竹': 'bg-emerald-400/15 text-emerald-300 border-emerald-400/40',
+      '梅': 'bg-slate-400/15 text-slate-300 border-slate-400/40',
+      '—': 'bg-slate-600/20 text-slate-400 border-slate-600/40'
+    };
+    // 提案の並び順：松を先頭に（「まず松から見せる」ため）
+    var TIER_RANK = { '松': 0, '竹': 1, '梅': 2, '—': 3 };
+
+    if (SHOP_NAME) document.getElementById('shopName').textContent = SHOP_NAME;
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+    }
+
+    function tierBadge(tier) {
+      var cls = TIER_STYLE[tier] || TIER_STYLE['—'];
+      return '<span class="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-bold ' + cls + '">' + esc(tier) + '</span>';
+    }
+
+    // 1件のカードを組み立て
+    function renderCard(item) {
+      // 困りごとタグ（お客さんの言葉）
+      var tags = item.troubles.map(function(id) {
+        var m = MAP[id];
+        var text = m ? m.label : id;
+        return '<span class="inline-flex items-center bg-slate-700/60 text-slate-200 text-xs font-medium px-2.5 py-1 rounded-full">' + esc(text) + '</span>';
+      }).join('');
+      if (!tags) tags = '<span class="text-slate-500 text-xs">（困りごとの選択なし）</span>';
+
+      // 裏の提案（松→竹→梅の順に並べ、重複商材はまとめる）
+      var seen = {};
+      var proposals = item.troubles
+        .map(function(id){ return MAP[id]; })
+        .filter(function(m){ return m; })
+        .sort(function(a, b){ return (TIER_RANK[a.tier] || 9) - (TIER_RANK[b.tier] || 9); })
+        .filter(function(m){ if (seen[m.product]) return false; seen[m.product] = true; return true; })
+        .map(function(m) {
+          return '<div class="flex items-start gap-2 py-1.5">' +
+                   tierBadge(m.tier) +
+                   '<span class="text-sm text-slate-100 leading-snug flex-1">' + esc(m.product) + '</span>' +
+                 '</div>';
+        }).join('');
+
+      var proposalBlock = proposals
+        ? '<div class="mt-3 bg-slate-900/60 border border-slate-700 rounded-xl p-3">' +
+            '<div class="text-[11px] font-bold text-orange-300 mb-1.5 flex items-center gap-1">💡 裏で紐づく提案</div>' +
+            proposals +
+            '<div class="mt-2 pt-2 border-t border-slate-700 text-[11px] text-slate-400 leading-relaxed">' +
+              '👉 まず<b class="text-amber-300">松</b>から見せて、響いた項目を<b class="text-emerald-300">竹</b>に足す。' +
+            '</div>' +
+          '</div>'
+        : '';
+
+      // お客さま情報行
+      var info = [];
+      if (item.name)     info.push(esc(item.name) + ' 様');
+      if (item.carModel) info.push(esc(item.carModel));
+      if (item.plate)    info.push('…' + esc(item.plate));
+      if (item.mileage)  info.push(esc(Number(item.mileage).toLocaleString()) + ' km');
+      var infoLine = info.length
+        ? info.join('　/　')
+        : '<span class="text-slate-500">お客さま情報の入力なし</span>';
+
+      var freeBlock = item.freeText
+        ? '<div class="mt-3 bg-slate-700/30 rounded-lg px-3 py-2 text-sm text-slate-200 leading-relaxed">' +
+            '<span class="text-slate-400 text-xs">ひとこと：</span>' + esc(item.freeText) +
+          '</div>'
+        : '';
+
+      return '<div class="fade-in bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-lg">' +
+               '<div class="flex items-center justify-between gap-2 mb-2">' +
+                 '<div class="font-bold text-white text-[15px] truncate">' + infoLine + '</div>' +
+                 '<div class="shrink-0 text-xs text-slate-400 tabular-nums">' + esc(item.time) + '</div>' +
+               '</div>' +
+               '<div class="flex flex-wrap gap-1.5">' + tags + '</div>' +
+               freeBlock +
+               proposalBlock +
+             '</div>';
+    }
+
+    function render(res) {
+      var noShop = document.getElementById('noShop');
+      var empty = document.getElementById('emptyState');
+      var list = document.getElementById('cardList');
+      var countBar = document.getElementById('countBar');
+
+      if (!SHOP) {
+        noShop.classList.remove('hidden');
+        empty.classList.add('hidden');
+        countBar.classList.add('hidden');
+        return;
+      }
+      noShop.classList.add('hidden');
+
+      if (res && res.shopName) document.getElementById('shopName').textContent = res.shopName;
+
+      var items = (res && res.items) ? res.items : [];
+      document.getElementById('count').textContent = items.length;
+      countBar.classList.remove('hidden');
+
+      if (items.length === 0) {
+        empty.classList.remove('hidden');
+        list.innerHTML = '';
+      } else {
+        empty.classList.add('hidden');
+        list.innerHTML = items.map(renderCard).join('');
+      }
+
+      var now = new Date();
+      var hh = ('0' + now.getHours()).slice(-2);
+      var mm = ('0' + now.getMinutes()).slice(-2);
+      var ss = ('0' + now.getSeconds()).slice(-2);
+      document.getElementById('updatedAt').textContent = '最終更新 ' + hh + ':' + mm + ':' + ss;
+    }
+
+    function refresh() {
+      if (!SHOP) { render(null); return; }
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function(){ /* 一時的な通信失敗は無視して次の更新を待つ */ })
+        .getKarteList(SHOP);
+    }
+
+    // 初回＋20秒ごとに自動更新（「その場で見る」を実現）
+    refresh();
+    setInterval(refresh, 20000);
+  </script>
+</body>
+</html>
