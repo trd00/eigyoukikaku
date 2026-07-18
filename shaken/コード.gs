@@ -48,7 +48,7 @@ function doGet(e) {
   t.shopName = getShopName(shop);
   return t.evaluate()
     .setTitle('車検 事前カルテ')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
 }
 
 

@@ -1,212 +1,225 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>車検カルテ｜フロント確認</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: #0f172a; }
-    .fade-in { animation: fadeIn 0.35s ease-out; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>車検カルテ｜フロント確認</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1b2733;
+    --ink-soft:#5a6673;
+    --line:#e4e8ee;
+    --bg:#eef1f5;
+    --card:#ffffff;
+    --amber:#ef8a17;
+    --amber-soft:#fff3e2;
+    --teal:#0e7c7b;
+    --teal-soft:#e2f2f1;
+    --shadow:0 6px 24px rgba(27,39,51,.08);
+    --shadow-lg:0 12px 40px rgba(27,39,51,.16);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
+  html,body{background:var(--bg);color:var(--ink);font-family:"Zen Kaku Gothic New",system-ui,sans-serif;line-height:1.6;}
+  body{padding:0 0 40px;}
+
+  .wrap{max-width:440px;margin:0 auto;padding:0 16px;}
+
+  /* ===== Front desk ===== */
+  .fd-head{margin:18px 0 6px;}
+  .fd-head .eyebrow{font-size:12px;letter-spacing:.1em;color:var(--amber);font-weight:700;min-height:14px;}
+  .fd-head h1{font-size:20px;font-weight:900;}
+  .fd-head p{font-size:12.5px;color:var(--ink-soft);}
+  .fd-count{
+    display:inline-flex;align-items:center;gap:6px;margin-top:10px;background:var(--ink);color:#fff;
+    padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;
+  }
+  .fd-count b{color:var(--amber);}
+  .fd-upd{margin-top:8px;font-size:11px;color:var(--ink-soft);}
+  .fd-upd .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:5px;vertical-align:middle;animation:blink 1.6s ease-in-out infinite;}
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:.25;}}
+
+  .entry{
+    background:var(--card);border-radius:18px;padding:18px;margin-top:14px;box-shadow:var(--shadow);
+    border-left:5px solid var(--amber);
+  }
+  .entry.calm{border-left-color:var(--teal);}
+  .entry .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .entry .who{font-size:17px;font-weight:900;}
+  .entry .car{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  .entry .time{font-size:11px;color:#9aa5b1;white-space:nowrap;}
+  .entry .plate{
+    display:inline-block;margin-top:8px;border:1.5px solid var(--ink);border-radius:6px;
+    padding:2px 10px;font-weight:700;font-size:13px;letter-spacing:.02em;
+  }
+
+  .symp{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;}
+  .symp span{background:var(--amber-soft);color:#a8560a;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:20px;}
+  .symp .free{background:#eef1f5;color:var(--ink-soft);}
+
+  .reco{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
+  .reco .rl{font-size:11px;font-weight:700;color:var(--ink-soft);letter-spacing:.08em;margin-bottom:8px;}
+  .reco .item{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;}
+  .reco .item .tier{
+    flex:none;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;
+    font-weight:900;font-size:12px;color:#fff;background:var(--amber);
+  }
+  .reco .item .tier.matsu{background:#b0322e;}
+  .reco .item .prod{font-weight:700;}
+  .reco .item .for{color:var(--ink-soft);font-size:11.5px;}
+  .reco .push{
+    margin-top:12px;background:var(--teal-soft);color:#0a5b5a;border-radius:10px;padding:10px 12px;
+    font-size:12.5px;font-weight:700;line-height:1.5;
+  }
+  .entry.calm .reco .push{background:#eef1f5;color:var(--ink-soft);}
+
+  .empty{text-align:center;padding:50px 20px;color:var(--ink-soft);}
+  .empty .big{font-size:40px;margin-bottom:12px;opacity:.4;}
+  .empty p{font-size:14px;}
+
+  .notice{
+    margin-top:18px;background:var(--amber-soft);border:1.5px solid #f4c78a;color:#8a4b06;
+    border-radius:14px;padding:16px;font-size:13px;line-height:1.7;
+  }
+  .notice code{background:#fff;border:1px solid #f0d3a8;border-radius:5px;padding:1px 6px;font-size:12px;}
+
+  .hidden{display:none;}
+</style>
 </head>
-<body class="min-h-screen">
+<body>
 
-  <!-- ヘッダー（固定） -->
-  <header class="sticky top-0 z-10 bg-slate-900/95 backdrop-blur border-b border-slate-700 px-4 py-3">
-    <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
-      <div class="min-w-0">
-        <h1 class="text-lg font-bold text-white truncate flex items-center gap-2">
-          <span>🔧</span><span id="shopName">フロント確認</span>
-        </h1>
-        <p class="text-xs text-slate-400">本日の事前カルテ ｜ 車検の提案づくりに</p>
-      </div>
-      <div class="text-right shrink-0">
-        <div class="flex items-center gap-1.5 justify-end text-emerald-400 text-xs font-medium">
-          <span class="pulse-dot w-2 h-2 rounded-full bg-emerald-400"></span>自動更新中
+<div id="viewDesk">
+  <div class="wrap">
+    <div class="fd-head">
+      <div class="eyebrow" id="shopEyebrow"></div>
+      <h1>本日の事前カルテ</h1>
+      <p>お客さまの入力がここに届きます。新しい順・自動更新。</p>
+      <div class="fd-count">受付済み <b id="cnt">0</b> 件</div>
+      <div class="fd-upd"><span class="dot"></span><span id="upd">読み込み中…</span></div>
+    </div>
+    <div id="entries"></div>
+  </div>
+</div>
+
+<script>
+var SHOP = '<?= shop ?>';
+var SHOP_NAME = '<?= shopName ?>';
+
+/* 困りごとID → お客さんの言葉 ＋ 裏で紐づく提案（松竹梅・提案理由）
+   ※この対応表はフロント確認画面にだけ存在する。お客さま画面には一切出さない。
+   ※BG546は「次回交換までLLC性能を維持」する製品。「交換が不要になる」ではない。 */
+const SYMPTOMS = [
+  { id:"ac",    ico:"❄️", label:"エアコンが臭う・効きが弱い",
+    reco:[{tier:"竹",prod:"Dr.Clean（MB-CL1 内部洗浄）＋ プレミアムフィルター PC-518S",for:"臭い・カビ対策"}] },
+  { id:"power", ico:"🚗", label:"加速がもたつく・パワー不足",
+    reco:[{tier:"松",prod:"BG107 RF-7 オイル添加剤",for:"エンジン内部を洗浄しレスポンス改善"}] },
+  { id:"fuel",  ico:"⛽", label:"燃費が落ちた気がする",
+    reco:[{tier:"松",prod:"BG107 RF-7 オイル添加剤",for:"燃焼効率の回復"}] },
+  { id:"heat",  ico:"🌡️", label:"水温・オーバーヒートが心配",
+    reco:[{tier:"松",prod:"BG546（Super Cool）クーラント",for:"次回交換までLLC性能を維持"}] },
+  { id:"brake", ico:"🛑", label:"ブレーキの効き・キーキー音",
+    reco:[{tier:"竹",prod:"K4PAD プレミアムパッド K-796WK",for:"制動力とタッチの改善"}] },
+  { id:"none",  ico:"👍", label:"特に気になることはない", none:true, reco:[] },
+];
+const BYID = {};
+SYMPTOMS.forEach(s=>{ BYID[s.id] = s; });
+
+if (SHOP_NAME) document.getElementById('shopEyebrow').textContent = SHOP_NAME;
+
+/* ===== 描画 ===== */
+function renderDesk(items){
+  const box = document.getElementById('entries');
+
+  // 工場未指定（?shop= がない）ときの案内
+  if(!SHOP){
+    document.getElementById('cnt').textContent = '0';
+    box.innerHTML = `<div class="notice">
+      工場が指定されていません。URLの末尾に <code>&shop=工場ID</code> を付けてアクセスしてください。<br>
+      例）<code>…/exec?view=desk&shop=tanaka</code></div>`;
+    return;
+  }
+
+  document.getElementById('cnt').textContent = items.length;
+
+  if(items.length===0){
+    box.innerHTML = `<div class="empty"><div class="big">🗂️</div><p>まだ受付はありません。<br>お客さまの入力を待っています。</p></div>`;
+    return;
+  }
+
+  box.innerHTML = items.map(e=>{
+    // 保存されている困りごとID → 症状オブジェクト
+    const syms = (e.troubles||[]).map(id=>BYID[id]).filter(Boolean);
+    const calm = syms.length===0 || (syms.length===1 && syms[0].id==='none');
+
+    const symTags = calm
+      ? `<span class="free">気になる点なし</span>`
+      : syms.filter(s=>s.id!=='none').map(s=>`<span>${s.label}</span>`).join('');
+    const freeTag = e.freeText ? `<span class="free">📝 ${escapeHtml(e.freeText)}</span>` : '';
+
+    // 裏で紐づく提案
+    const recos = [];
+    syms.forEach(s=>(s.reco||[]).forEach(r=>recos.push(r)));
+    const recoHtml = recos.length ? `
+      <div class="reco">
+        <div class="rl">おすすめ提案</div>
+        ${recos.map(r=>`
+          <div class="item">
+            <span class="tier ${r.tier==='松'?'matsu':''}">${r.tier}</span>
+            <span class="prod">${escapeHtml(r.prod)}</span>
+          </div>
+          <div class="item"><span class="tier" style="visibility:hidden">・</span><span class="for">→ ${escapeHtml(r.for)}</span></div>
+        `).join('')}
+        <div class="push">💡 まず「松」から見せて、響いた項目を「竹」に足しましょう。</div>
+      </div>` :
+      `<div class="reco"><div class="push">😊 気になる点なし。まずは標準の「竹」を丁寧にご案内。</div></div>`;
+
+    const who = e.name ? escapeHtml(e.name) : 'お名前未記入';
+    const car = e.carModel ? escapeHtml(e.carModel) : '車種未記入';
+
+    return `
+      <div class="entry ${calm?'calm':''}">
+        <div class="top">
+          <div>
+            <div class="who">${who}</div>
+            <div class="car">${car}</div>
+          </div>
+          <div class="time">${escapeHtml(e.time||'')}</div>
         </div>
-        <div id="updatedAt" class="text-[11px] text-slate-500 mt-0.5">—</div>
-      </div>
-    </div>
-  </header>
+        ${e.plate?`<div class="plate">${escapeHtml(e.plate)}</div>`:''}
+        <div class="symp">${symTags}${freeTag}</div>
+        ${recoHtml}
+      </div>`;
+  }).join('');
+}
 
-  <main class="max-w-3xl mx-auto px-4 py-5">
+function stampUpdated(){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  document.getElementById('upd').textContent =
+    '自動更新中 ｜ 最終更新 ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
 
-    <div id="countBar" class="hidden mb-4 text-sm text-slate-400">
-      本日 <span id="count" class="text-white font-bold">0</span> 件
-    </div>
+/* ===== データ取得（当日ぶんを新しい順で）===== */
+function refresh(){
+  if(!SHOP){ renderDesk([]); return; }
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res && res.shopName) document.getElementById('shopEyebrow').textContent = res.shopName;
+      renderDesk((res && res.items) ? res.items : []);
+      stampUpdated();
+    })
+    .withFailureHandler(function(){ /* 一時的な通信失敗は無視して次の更新を待つ */ })
+    .getKarteList(SHOP);
+}
 
-    <!-- 未指定（?shop= がない）ときの案内 -->
-    <div id="noShop" class="hidden bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-xl p-5 text-sm leading-relaxed">
-      工場が指定されていません。<br>
-      URLの末尾に <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-100">&amp;shop=工場ID</code> を付けてアクセスしてください。<br>
-      例：<code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-100">…/exec?view=desk&amp;shop=tanaka</code>
-    </div>
+/* ===== helpers ===== */
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-    <!-- 空のとき -->
-    <div id="emptyState" class="hidden text-center py-20">
-      <div class="text-5xl mb-3">🕐</div>
-      <p class="text-slate-300 font-medium">本日の入力はまだありません</p>
-      <p class="text-slate-500 text-sm mt-1">お客さまがQRから送信すると、ここに自動で表示されます</p>
-    </div>
-
-    <!-- カード一覧 -->
-    <div id="cardList" class="space-y-4"></div>
-
-    <p class="text-center text-[11px] text-slate-600 mt-8">
-      この画面はスタッフ用です。お客さまには見せない前提の提案情報が含まれます。
-    </p>
-  </main>
-
-  <script>
-    var SHOP = '<?= shop ?>';
-    var SHOP_NAME = '<?= shopName ?>';
-
-    // 困りごとID → 「お客さんの言葉」＋「裏で紐づく提案」＋松竹梅
-    // ※この対応表はフロント確認画面にだけ存在する。お客さま画面には一切出さない。
-    var MAP = {
-      ac:    { label: 'エアコンが臭う・効きが弱い', tier: '竹', product: 'Dr.Clean（MB-CL1 内部洗浄）＋ プレミアムフィルター PC-518S' },
-      power: { label: '加速がもたつく・パワー不足', tier: '松', product: 'BG107 RF-7 オイル添加剤' },
-      fuel:  { label: '燃費が落ちた気がする',       tier: '松', product: 'BG107 RF-7 オイル添加剤' },
-      heat:  { label: '水温・オーバーヒートが心配', tier: '松', product: 'BG546（Super Cool）クーラント　※次回交換までLLC性能を維持' },
-      brake: { label: 'ブレーキの効き・キーキー音', tier: '竹', product: 'K4PAD プレミアムパッド K-796WK' },
-      none:  { label: '特に気になることはない',     tier: '—', product: '標準の竹を丁寧にご案内' }
-    };
-
-    // 松竹梅バッジの色
-    var TIER_STYLE = {
-      '松': 'bg-amber-400/15 text-amber-300 border-amber-400/40',
-      '竹': 'bg-emerald-400/15 text-emerald-300 border-emerald-400/40',
-      '梅': 'bg-slate-400/15 text-slate-300 border-slate-400/40',
-      '—': 'bg-slate-600/20 text-slate-400 border-slate-600/40'
-    };
-    // 提案の並び順：松を先頭に（「まず松から見せる」ため）
-    var TIER_RANK = { '松': 0, '竹': 1, '梅': 2, '—': 3 };
-
-    if (SHOP_NAME) document.getElementById('shopName').textContent = SHOP_NAME;
-
-    function esc(s) {
-      return String(s == null ? '' : s)
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;');
-    }
-
-    function tierBadge(tier) {
-      var cls = TIER_STYLE[tier] || TIER_STYLE['—'];
-      return '<span class="inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-bold ' + cls + '">' + esc(tier) + '</span>';
-    }
-
-    // 1件のカードを組み立て
-    function renderCard(item) {
-      // 困りごとタグ（お客さんの言葉）
-      var tags = item.troubles.map(function(id) {
-        var m = MAP[id];
-        var text = m ? m.label : id;
-        return '<span class="inline-flex items-center bg-slate-700/60 text-slate-200 text-xs font-medium px-2.5 py-1 rounded-full">' + esc(text) + '</span>';
-      }).join('');
-      if (!tags) tags = '<span class="text-slate-500 text-xs">（困りごとの選択なし）</span>';
-
-      // 裏の提案（松→竹→梅の順に並べ、重複商材はまとめる）
-      var seen = {};
-      var proposals = item.troubles
-        .map(function(id){ return MAP[id]; })
-        .filter(function(m){ return m; })
-        .sort(function(a, b){ return (TIER_RANK[a.tier] || 9) - (TIER_RANK[b.tier] || 9); })
-        .filter(function(m){ if (seen[m.product]) return false; seen[m.product] = true; return true; })
-        .map(function(m) {
-          return '<div class="flex items-start gap-2 py-1.5">' +
-                   tierBadge(m.tier) +
-                   '<span class="text-sm text-slate-100 leading-snug flex-1">' + esc(m.product) + '</span>' +
-                 '</div>';
-        }).join('');
-
-      var proposalBlock = proposals
-        ? '<div class="mt-3 bg-slate-900/60 border border-slate-700 rounded-xl p-3">' +
-            '<div class="text-[11px] font-bold text-orange-300 mb-1.5 flex items-center gap-1">💡 裏で紐づく提案</div>' +
-            proposals +
-            '<div class="mt-2 pt-2 border-t border-slate-700 text-[11px] text-slate-400 leading-relaxed">' +
-              '👉 まず<b class="text-amber-300">松</b>から見せて、響いた項目を<b class="text-emerald-300">竹</b>に足す。' +
-            '</div>' +
-          '</div>'
-        : '';
-
-      // お客さま情報行
-      var info = [];
-      if (item.name)     info.push(esc(item.name) + ' 様');
-      if (item.carModel) info.push(esc(item.carModel));
-      if (item.plate)    info.push('…' + esc(item.plate));
-      if (item.mileage)  info.push(esc(Number(item.mileage).toLocaleString()) + ' km');
-      var infoLine = info.length
-        ? info.join('　/　')
-        : '<span class="text-slate-500">お客さま情報の入力なし</span>';
-
-      var freeBlock = item.freeText
-        ? '<div class="mt-3 bg-slate-700/30 rounded-lg px-3 py-2 text-sm text-slate-200 leading-relaxed">' +
-            '<span class="text-slate-400 text-xs">ひとこと：</span>' + esc(item.freeText) +
-          '</div>'
-        : '';
-
-      return '<div class="fade-in bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-lg">' +
-               '<div class="flex items-center justify-between gap-2 mb-2">' +
-                 '<div class="font-bold text-white text-[15px] truncate">' + infoLine + '</div>' +
-                 '<div class="shrink-0 text-xs text-slate-400 tabular-nums">' + esc(item.time) + '</div>' +
-               '</div>' +
-               '<div class="flex flex-wrap gap-1.5">' + tags + '</div>' +
-               freeBlock +
-               proposalBlock +
-             '</div>';
-    }
-
-    function render(res) {
-      var noShop = document.getElementById('noShop');
-      var empty = document.getElementById('emptyState');
-      var list = document.getElementById('cardList');
-      var countBar = document.getElementById('countBar');
-
-      if (!SHOP) {
-        noShop.classList.remove('hidden');
-        empty.classList.add('hidden');
-        countBar.classList.add('hidden');
-        return;
-      }
-      noShop.classList.add('hidden');
-
-      if (res && res.shopName) document.getElementById('shopName').textContent = res.shopName;
-
-      var items = (res && res.items) ? res.items : [];
-      document.getElementById('count').textContent = items.length;
-      countBar.classList.remove('hidden');
-
-      if (items.length === 0) {
-        empty.classList.remove('hidden');
-        list.innerHTML = '';
-      } else {
-        empty.classList.add('hidden');
-        list.innerHTML = items.map(renderCard).join('');
-      }
-
-      var now = new Date();
-      var hh = ('0' + now.getHours()).slice(-2);
-      var mm = ('0' + now.getMinutes()).slice(-2);
-      var ss = ('0' + now.getSeconds()).slice(-2);
-      document.getElementById('updatedAt').textContent = '最終更新 ' + hh + ':' + mm + ':' + ss;
-    }
-
-    function refresh() {
-      if (!SHOP) { render(null); return; }
-      google.script.run
-        .withSuccessHandler(render)
-        .withFailureHandler(function(){ /* 一時的な通信失敗は無視して次の更新を待つ */ })
-        .getKarteList(SHOP);
-    }
-
-    // 初回＋20秒ごとに自動更新（「その場で見る」を実現）
-    refresh();
-    setInterval(refresh, 20000);
-  </script>
+// 初回＋20秒ごとに自動更新（「その場で見る」を実現）
+refresh();
+setInterval(refresh, 20000);
+</script>
 </body>
 </html>
