@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>まえば小児科 WEB問診</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background:#f1f5f9; }
+  /* 片手操作を想定し、タップ領域を大きく取る */
+  .opt { min-height: 56px; }
+  input, select, textarea { font-size: 16px !important; } /* iOSの自動ズーム防止 */
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  input[type=number] { -moz-appearance:textfield; }
+  .fade { animation: fade .25s ease-out; }
+  @keyframes fade { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+</style>
+</head>
+<body class="pb-32">
+
+<!-- ヘッダー -->
+<header class="bg-sky-700 text-white px-4 py-4 sticky top-0 z-20 shadow-md">
+  <div class="max-w-2xl mx-auto">
+    <div class="flex items-baseline justify-between">
+      <h1 class="text-lg font-bold">まえば小児科 WEB問診</h1>
+      <span id="demoBadge" class="hidden text-[11px] bg-amber-400 text-amber-950 font-bold px-2 py-0.5 rounded">デモ表示</span>
+    </div>
+    <div id="progressWrap" class="hidden mt-3">
+      <div class="flex justify-between text-[11px] text-sky-100 mb-1">
+        <span id="stepLabel"></span><span id="stepCount"></span>
+      </div>
+      <div class="h-1.5 bg-sky-900/40 rounded-full overflow-hidden">
+        <div id="progressBar" class="h-full bg-white rounded-full transition-all duration-300" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="app" class="max-w-2xl mx-auto px-4 py-6"></main>
+
+<!-- 下部固定ボタン -->
+<div id="navBar" class="hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 z-20">
+  <div class="max-w-2xl mx-auto flex gap-3">
+    <button id="btnBack" class="opt px-5 rounded-xl border-2 border-slate-300 text-slate-700 font-bold bg-white active:bg-slate-100">戻る</button>
+    <button id="btnNext" class="opt flex-1 rounded-xl bg-sky-600 text-white font-bold text-lg active:bg-sky-700">次へ</button>
+  </div>
+</div>
+
+<script src="monshin-schema.js"></script>
+<script>
+/* ============================================================
+   まえば小児科 WEB問診 — 患者・保護者側
+   質問定義は monshin-schema.js（MONSHIN_SCHEMA）に分離。
+   GASにデプロイした場合は google.script.run で送信、
+   単体HTMLとして開いた場合はデモ動作にフォールバックする。
+   ============================================================ */
+
+const IS_GAS = typeof google !== 'undefined' && google.script && google.script.run;
+const DRAFT_KEY = 'maeba_monshin_draft';
+
+const state = {
+  visitType: null,
+  patient: {},
+  answers: {},
+  stepIndex: 0,
+  steps: [],
+  // 登録情報の呼び出し（要件6-1-2）の入力状態
+  lookup: { status: '', cardNo: '', birthDate: '', name: '', message: '' },
+};
+
+/* ---------- 画面遷移の骨格 ----------
+   steps は [{kind:'visitType'|'patient'|'section'|'confirm'|'done', ...}] */
+function buildSteps() {
+  const q = MONSHIN_SCHEMA[state.visitType];
+  state.steps = [
+    { kind: 'visitType' },
+    { kind: 'patient' },
+    ...q.sections.map(s => ({ kind: 'section', section: s })),
+    { kind: 'confirm' },
+    { kind: 'done' },
+  ];
+}
+
+const app = document.getElementById('app');
+const navBar = document.getElementById('navBar');
+const btnBack = document.getElementById('btnBack');
+const btnNext = document.getElementById('btnNext');
+
+function render() {
+  const step = state.steps[state.stepIndex] || { kind: 'visitType' };
+  window.scrollTo(0, 0);
+  updateProgress(step);
+
+  if (step.kind === 'visitType') renderVisitType();
+  else if (step.kind === 'patient') renderPatient();
+  else if (step.kind === 'section') renderSection(step.section);
+  else if (step.kind === 'confirm') renderConfirm();
+  else if (step.kind === 'done') renderDone();
+}
+
+function updateProgress(step) {
+  const wrap = document.getElementById('progressWrap');
+  if (step.kind === 'visitType' || step.kind === 'done') {
+    wrap.classList.add('hidden');
+    navBar.classList.toggle('hidden', true);
+    return;
+  }
+  wrap.classList.remove('hidden');
+  navBar.classList.remove('hidden');
+
+  const total = state.steps.length - 2;          // visitType と done を除く
+  const current = state.stepIndex;                // 1始まり相当
+  document.getElementById('progressBar').style.width = Math.round(current / total * 100) + '%';
+  document.getElementById('stepCount').textContent = current + ' / ' + total;
+  document.getElementById('stepLabel').textContent =
+    step.kind === 'patient' ? '患者さんの情報'
+    : step.kind === 'confirm' ? '入力内容の確認'
+    : step.section.title;
+
+  btnNext.textContent = step.kind === 'confirm' ? 'この内容で送信する' : '次へ';
+  btnNext.className = step.kind === 'confirm'
+    ? 'opt flex-1 rounded-xl bg-emerald-600 text-white font-bold text-lg active:bg-emerald-700'
+    : 'opt flex-1 rounded-xl bg-sky-600 text-white font-bold text-lg active:bg-sky-700';
+}
+
+/* ---------- 1. 受診区分の選択 ---------- */
+function renderVisitType() {
+  app.innerHTML = `
+    <div class="fade">
+      <div class="bg-white rounded-2xl p-5 mb-4 border border-slate-200">
+        <p class="text-slate-700 leading-relaxed">
+          診察をスムーズに行うための問診です。<br>
+          あてはまるものを選んでお進みください。
+        </p>
+        <p class="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
+          <span class="font-bold">お急ぎの場合</span><br>
+          呼吸が苦しそう、けいれんが続いている、意識がおかしいなどの場合は、
+          問診の入力を待たずに <span class="font-bold">お電話</span> または救急受診をお願いします。
+        </p>
+      </div>
+      <h2 class="text-base font-bold text-slate-800 mb-3">本日の受診内容を選んでください</h2>
+      <div class="space-y-3">
+        ${VISIT_TYPES.map(v => `
+          <button data-visit="${v.id}" class="visit-btn w-full text-left bg-white border-2 border-slate-200 rounded-2xl p-4 active:bg-sky-50 active:border-sky-400 flex items-center gap-4">
+            <span class="text-3xl">${v.icon}</span>
+            <span class="flex-1">
+              <span class="block font-bold text-slate-800">${v.label}</span>
+              <span class="block text-sm text-slate-500 mt-0.5">${v.desc}</span>
+            </span>
+            <span class="text-slate-300 text-xl">›</span>
+          </button>`).join('')}
+      </div>
+    </div>`;
+
+  app.querySelectorAll('.visit-btn').forEach(b => {
+    b.onclick = () => {
+      state.visitType = b.dataset.visit;
+      buildSteps();
+      state.stepIndex = 1;
+      render();
+    };
+  });
+}
+
+/* ---------- 2. 患者基本情報 ---------- */
+function renderPatient() {
+  const p = state.patient;
+  app.innerHTML = `
+    <div class="fade space-y-4">
+      ${sectionHead('患者さんの情報', '受付での確認に使用します')}
+      ${lookupCard()}
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 space-y-4">
+        ${field('お子さまのお名前', 'name', 'text', p.name, true, '例：前場 太郎')}
+        ${field('ふりがな', 'nameKana', 'text', p.nameKana, true, '例：まえば たろう')}
+        ${field('生年月日', 'birthDate', 'date', p.birthDate, true)}
+        <div id="ageView" class="text-sm text-sky-700 font-bold"></div>
+        ${radioField('性別', 'gender', [['男の子','男の子'],['女の子','女の子']], p.gender, true)}
+        ${field('保護者のお名前', 'guardianName', 'text', p.guardianName, true)}
+        ${radioField('お子さまとの続柄', 'relationship', [['母','母'],['父','父'],['祖母','祖母'],['祖父','祖父'],['その他','その他']], p.relationship, true)}
+        ${field('連絡のつく電話番号', 'phone', 'tel', p.phone, true, '例：09012345678')}
+        ${field('診察券番号（お持ちの方のみ）', 'cardNo', 'text', p.cardNo, false, '例：12345')}
+        ${field('ご住所', 'address', 'text', p.address, false, '例：〇〇市〇〇町1-2-3')}
+      </div>
+      <p class="text-xs text-slate-500 leading-relaxed px-1">
+        ご入力いただいた情報は、診察および院内での確認のみに使用します。
+      </p>
+    </div>`;
+
+  const bd = app.querySelector('[name=birthDate]');
+  const showAge = () => {
+    const a = calcAge(bd.value);
+    document.getElementById('ageView').textContent = a ? '年齢：' + a.text : '';
+  };
+  bd.addEventListener('change', showAge);
+  showAge();
+  bindLookup();
+}
+
+/* ---------- 登録情報の呼び出し（要件6-1-2） ----------
+   受付に登録済みの方は、診察券番号と生年月日を入れるだけで
+   氏名・保護者名・電話番号などが入る。入力の手間を減らすための機能。
+
+   診察券番号だけでは呼び出さない。問診のURLは誰でも開けるため、
+   番号を順に試すだけで患者名を集められる作りにしないため。 */
+function lookupCard() {
+  const lk = state.lookup;
+
+  if (lk.status === 'ok') {
+    return `
+      <div class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4">
+        <p class="font-bold text-emerald-900">✓ 登録情報を読み込みました</p>
+        <p class="text-sm text-emerald-800 mt-1 leading-relaxed">
+          ${escapeHtml(lk.name)} さんの情報です。<br>
+          お引越しや電話番号の変更などがあれば、下の欄を直してください。
+        </p>
+        <button id="lkReset" class="mt-3 text-sm font-bold text-emerald-800 underline">別の診察券番号で読み込む</button>
+      </div>`;
+  }
+
+  return `
+    <div class="bg-sky-50 border-2 border-sky-200 rounded-2xl p-4">
+      <p class="font-bold text-slate-800">診察券をお持ちの方</p>
+      <p class="text-sm text-slate-600 mt-1 leading-relaxed">
+        診察券番号と生年月日を入れると、受付に登録されているお名前などを呼び出せます。
+      </p>
+      <div class="mt-3 space-y-3">
+        <div>
+          <label class="block font-bold text-slate-800 text-sm">診察券番号</label>
+          <input type="text" inputmode="numeric" name="lkCardNo" value="${escapeHtml(lk.cardNo)}" placeholder="例：12345"
+            class="mt-1.5 w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-800 text-sm">お子さまの生年月日</label>
+          <input type="date" name="lkBirth" value="${escapeHtml(lk.birthDate)}"
+            class="mt-1.5 w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        </div>
+        <button id="lkGo" class="opt w-full rounded-xl bg-sky-600 text-white font-bold active:bg-sky-700">登録情報を呼び出す</button>
+        ${lk.message ? `<p class="text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-lg p-3">${escapeHtml(lk.message)}</p>` : ''}
+        <p class="text-xs text-slate-500 leading-relaxed">
+          初めての受診の方、診察券が手元にない方は、そのまま下の欄へご入力ください。<br>
+          マイナンバーカードの12桁の番号は使用しません。
+        </p>
+      </div>
+    </div>`;
+}
+
+function bindLookup() {
+  const reset = document.getElementById('lkReset');
+  if (reset) {
+    reset.onclick = () => {
+      collectPatient();
+      state.lookup = { status: '', cardNo: '', birthDate: '', name: '', message: '' };
+      render();
+    };
+  }
+
+  const go = document.getElementById('lkGo');
+  if (!go) return;
+
+  go.onclick = () => {
+    // 呼び出しで画面を描き直すため、手入力済みの内容を先に控えておく
+    collectPatient();
+
+    const no = app.querySelector('[name=lkCardNo]').value.trim();
+    const bd = app.querySelector('[name=lkBirth]').value;
+    state.lookup.cardNo = no;
+    state.lookup.birthDate = bd;
+
+    if (/^[0-9]{12}$/.test(no.replace(/[\s-]/g, ''))) {
+      state.lookup.message = 'マイナンバー（12桁の番号）は問診では使用しません。診察券番号をご入力ください。';
+      render();
+      return;
+    }
+    if (!no || !bd) {
+      state.lookup.message = '診察券番号と生年月日の両方をご入力ください。';
+      render();
+      return;
+    }
+
+    go.disabled = true;
+    go.textContent = '呼び出しています...';
+    go.classList.add('opacity-60');
+
+    requestLookup(no, bd, r => {
+      if (r && r.success) {
+        Object.assign(state.patient, r.patient);
+        // 年齢は表示だけでなく質問の出し分けにも使うので、ここでそろえておく
+        const a = calcAge(state.patient.birthDate);
+        state.patient.age = a ? a.text : '';
+        state.patient.ageMonths = a ? a.months : null;
+        state.lookup = { status: 'ok', cardNo: no, birthDate: bd, name: r.patient.name, message: '' };
+      } else {
+        state.lookup.message = (r && r.message) || '呼び出せませんでした。そのまま下の欄へご入力ください。';
+      }
+      render();
+      saveDraft();
+    });
+  };
+}
+
+function requestLookup(cardNo, birthDate, cb) {
+  if (IS_GAS) {
+    google.script.run
+      .withSuccessHandler(cb)
+      .withFailureHandler(e => cb({ success: false, message: '通信できませんでした。そのまま下の欄へご入力ください。' }))
+      .lookupPatient(cardNo, birthDate);
+  } else {
+    // 単体HTMLで開いた場合のデモ動作
+    setTimeout(() => cb(demoLookup(cardNo, birthDate)), 400);
+  }
+}
+
+/* デモ用の登録データ。管理画面のデモ患者と同じ内容にしてある。 */
+const DEMO_PATIENTS = [
+  { cardNo: '10234', name: '前場 花子', nameKana: 'まえば はなこ', birthDate: '2024-11-10', gender: '女の子',
+    guardianName: '前場 里美', relationship: '母', phone: '09011112222', address: '〇〇市〇〇町1-2-3' },
+  { cardNo: '10877', name: '前場 一郎', nameKana: 'まえば いちろう', birthDate: '2025-12-20', gender: '男の子',
+    guardianName: '前場 健', relationship: '父', phone: '08033334444', address: '〇〇市〇〇町4-5-6' },
+  { cardNo: '10555', name: '前場 桃子', nameKana: 'まえば ももこ', birthDate: '2025-01-05', gender: '女の子',
+    guardianName: '前場 直美', relationship: '母', phone: '07055556666', address: '〇〇市〇〇町7-8-9' },
+  { cardNo: '10099', name: '前場 さくら', nameKana: 'まえば さくら', birthDate: '2021-03-30', gender: '女の子',
+    guardianName: '前場 恵', relationship: '母', phone: '09099990000', address: '〇〇市〇〇町5-6-7' },
+];
+
+function demoLookup(cardNo, birthDate) {
+  const no = String(cardNo).replace(/[\s-]/g, '');
+  const hit = DEMO_PATIENTS.find(p => p.cardNo === no && p.birthDate === birthDate);
+  return hit
+    ? { success: true, patient: Object.assign({}, hit) }
+    : { success: false, message: '登録が見つかりませんでした。番号と生年月日をご確認ください。' };
+}
+
+/* ---------- 3. 問診セクション ---------- */
+function renderSection(section) {
+  const visible = section.questions.filter(q => isVisible(q));
+  app.innerHTML = `
+    <div class="fade space-y-4">
+      ${sectionHead(section.title, section.desc)}
+      <div id="alertArea"></div>
+      <div id="qList" class="space-y-4"></div>
+    </div>`;
+
+  const list = document.getElementById('qList');
+  visible.forEach(q => list.insertAdjacentHTML('beforeend', questionCard(q)));
+  bindQuestionEvents(section);
+  refreshAlerts();
+}
+
+/* 回答が変わるたびに、表示条件と注意喚起を再評価する */
+function bindQuestionEvents(section) {
+  app.querySelectorAll('[data-qid]').forEach(el => {
+    el.addEventListener('change', () => {
+      collectSection(section);
+      const list = document.getElementById('qList');
+      const visible = section.questions.filter(q => isVisible(q));
+      // 表示すべき質問の集合が変わった場合のみ描き直す
+      const shownIds = [...list.querySelectorAll('[data-card]')].map(c => c.dataset.card);
+      const wantIds = visible.map(q => q.id);
+      if (shownIds.join(',') !== wantIds.join(',')) {
+        list.innerHTML = '';
+        visible.forEach(q => list.insertAdjacentHTML('beforeend', questionCard(q)));
+        bindQuestionEvents(section);
+      }
+      refreshAlerts();
+      saveDraft();
+    });
+  });
+}
+
+/* ---------- 注意喚起（要件6-4-1） ---------- */
+let shownCritical = new Set();
+
+function refreshAlerts() {
+  const area = document.getElementById('alertArea');
+  if (!area) return;
+  const flags = detectUrgent();
+  if (!flags.length) { area.innerHTML = ''; return; }
+  const critical = flags.some(f => f.level === 'critical');
+
+  // 画面下まで進んでから緊急項目を選んだ場合でも見落とさないよう、
+  // 新しく赤の注意が出たときだけ表示位置まで戻す
+  const nowCritical = flags.filter(f => f.level === 'critical').map(f => f.qid + f.msg);
+  const isNew = nowCritical.some(k => !shownCritical.has(k));
+  shownCritical = new Set(nowCritical);
+  if (isNew) setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  area.innerHTML = `
+    <div class="${critical ? 'bg-rose-50 border-rose-400' : 'bg-amber-50 border-amber-400'} border-2 rounded-2xl p-4 fade">
+      <p class="font-bold ${critical ? 'text-rose-800' : 'text-amber-800'} flex items-center gap-2">
+        <span class="text-xl">${critical ? '🚨' : '⚠️'}</span>
+        ${critical ? 'お早めにご連絡ください' : '気になる症状があります'}
+      </p>
+      <ul class="mt-2 space-y-1 text-sm ${critical ? 'text-rose-700' : 'text-amber-800'}">
+        ${flags.map(f => '<li>・' + f.msg + '</li>').join('')}
+      </ul>
+      ${critical ? `
+        <p class="mt-3 text-sm text-rose-800 bg-white/70 rounded-lg p-3 leading-relaxed">
+          問診の入力を続けずに、<span class="font-bold">当院へお電話</span>いただくか、
+          状態によっては救急受診をご検討ください。
+        </p>` : ''}
+    </div>`;
+}
+
+function detectUrgent() {
+  const flags = [];
+  const age = calcAge(state.patient.birthDate || app.querySelector('[name=birthDate]')?.value);
+  currentQuestions().forEach(q => {
+    if (!q.urgent) return;
+    const v = state.answers[q.id];
+    if (v === undefined || v === '' || (Array.isArray(v) && !v.length)) return;
+    (Array.isArray(q.urgent) ? q.urgent : [q.urgent]).forEach(rule => {
+      if (matchRule(v, rule, age)) flags.push({ qid: q.id, label: q.label, msg: rule.msg, level: rule.level || 'high' });
+    });
+  });
+  return flags;
+}
+
+function matchRule(v, rule, age) {
+  if (rule.ageUnderMonths !== undefined) {
+    if (!age || age.months >= rule.ageUnderMonths) return false;
+  }
+  switch (rule.op) {
+    case 'eq':  return String(v) === String(rule.v);
+    case 'in':  return Array.isArray(v) ? v.some(x => rule.v.includes(x)) : rule.v.includes(String(v));
+    case 'gte': return Number(v) >= Number(rule.v);
+    case 'lte': return Number(v) <= Number(rule.v);
+    default: return false;
+  }
+}
+
+/* ---------- 表示条件（要件6-1-3） ---------- */
+function isVisible(q) {
+  if (!q.showIf) return true;
+  const rules = Array.isArray(q.showIf) ? q.showIf : [q.showIf];
+  return rules.every(r => {
+    const v = state.answers[r.q];
+    if (v === undefined) return false;
+    switch (r.op) {
+      case 'eq':  return String(v) === String(r.v);
+      case 'ne':  return String(v) !== String(r.v);
+      case 'in':  return Array.isArray(v) ? v.some(x => r.v.includes(x)) : r.v.includes(String(v));
+      case 'any': return Array.isArray(v) ? v.length > 0 : !!v;
+      case 'gte': return Number(v) >= Number(r.v);
+      default: return false;
+    }
+  });
+}
+
+function currentQuestions() {
+  const q = MONSHIN_SCHEMA[state.visitType];
+  if (!q) return [];
+  return q.sections.flatMap(s => s.questions).filter(x => isVisible(x));
+}
+
+/* ---------- 入力欄の描画 ---------- */
+function questionCard(q) {
+  return `
+  <div data-card="${q.id}" class="bg-white rounded-2xl p-5 border border-slate-200 fade">
+    <label class="block font-bold text-slate-800 leading-snug">
+      ${q.label}${q.required ? ' <span class="text-rose-500 text-sm">必須</span>' : ''}
+    </label>
+    ${q.help ? `<p class="text-sm text-slate-500 mt-1">${q.help}</p>` : ''}
+    <div class="mt-3">${inputFor(q)}</div>
+  </div>`;
+}
+
+function inputFor(q) {
+  const v = state.answers[q.id];
+  switch (q.type) {
+    case 'radio':
+      return `<div class="space-y-2">${q.options.map(o => {
+        const val = Array.isArray(o) ? o[0] : o;
+        const lab = Array.isArray(o) ? o[1] : o;
+        return `<label class="opt flex items-center gap-3 border-2 rounded-xl px-4 ${String(v)===String(val)?'border-sky-500 bg-sky-50':'border-slate-200 bg-white'}">
+          <input type="radio" data-qid="${q.id}" name="${q.id}" value="${val}" ${String(v)===String(val)?'checked':''} class="w-5 h-5 accent-sky-600">
+          <span class="font-medium text-slate-800">${lab}</span></label>`;
+      }).join('')}</div>`;
+
+    case 'checkbox':
+      return `<div class="space-y-2">${q.options.map(o => {
+        const val = Array.isArray(o) ? o[0] : o;
+        const lab = Array.isArray(o) ? o[1] : o;
+        const on = Array.isArray(v) && v.includes(val);
+        return `<label class="opt flex items-center gap-3 border-2 rounded-xl px-4 ${on?'border-sky-500 bg-sky-50':'border-slate-200 bg-white'}">
+          <input type="checkbox" data-qid="${q.id}" name="${q.id}" value="${val}" ${on?'checked':''} class="w-5 h-5 accent-sky-600">
+          <span class="font-medium text-slate-800">${lab}</span></label>`;
+      }).join('')}</div>`;
+
+    case 'temperature':
+      return `<div class="flex items-center gap-3">
+        <input type="number" step="0.1" min="34" max="43" inputmode="decimal" data-qid="${q.id}" name="${q.id}"
+          value="${v ?? ''}" placeholder="37.5"
+          class="w-32 text-2xl font-bold text-center px-3 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        <span class="text-lg font-bold text-slate-600">℃</span>
+      </div>`;
+
+    case 'textarea':
+      return `<textarea data-qid="${q.id}" name="${q.id}" rows="3" placeholder="${q.placeholder||''}"
+        class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">${v ?? ''}</textarea>`;
+
+    case 'select':
+      return `<select data-qid="${q.id}" name="${q.id}"
+        class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        <option value="">選択してください</option>
+        ${q.options.map(o => {
+          const val = Array.isArray(o) ? o[0] : o;
+          const lab = Array.isArray(o) ? o[1] : o;
+          return `<option value="${val}" ${String(v)===String(val)?'selected':''}>${lab}</option>`;
+        }).join('')}</select>`;
+
+    default: // text / number / date / datetime-local / tel
+      return `<input type="${q.type}" data-qid="${q.id}" name="${q.id}" value="${v ?? ''}"
+        placeholder="${q.placeholder||''}" ${q.unit?'inputmode="decimal"':''}
+        class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        ${q.unit ? `<span class="text-sm text-slate-500 ml-1">${q.unit}</span>` : ''}`;
+  }
+}
+
+/* ---------- 共通パーツ ---------- */
+function sectionHead(title, desc) {
+  return `<div class="px-1">
+    <h2 class="text-xl font-bold text-slate-800">${title}</h2>
+    ${desc ? `<p class="text-sm text-slate-500 mt-1">${desc}</p>` : ''}
+  </div>`;
+}
+
+function field(label, name, type, val, req, ph) {
+  return `<div>
+    <label class="block font-bold text-slate-800 text-sm">${label}${req?' <span class="text-rose-500">必須</span>':''}</label>
+    <input type="${type}" name="${name}" value="${escapeHtml(val ?? '')}" placeholder="${ph||''}"
+      class="mt-1.5 w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+  </div>`;
+}
+
+function radioField(label, name, opts, val, req) {
+  return `<div>
+    <label class="block font-bold text-slate-800 text-sm mb-1.5">${label}${req?' <span class="text-rose-500">必須</span>':''}</label>
+    <div class="flex flex-wrap gap-2">
+      ${opts.map(([v,l]) => `
+        <label class="opt flex items-center gap-2 border-2 rounded-xl px-4 ${String(val)===String(v)?'border-sky-500 bg-sky-50':'border-slate-200 bg-white'}">
+          <input type="radio" name="${name}" value="${v}" ${String(val)===String(v)?'checked':''} class="w-5 h-5 accent-sky-600">
+          <span class="font-medium text-slate-800">${l}</span></label>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ---------- 入力値の回収 ---------- */
+function collectPatient() {
+  ['name','nameKana','birthDate','guardianName','phone','cardNo','address'].forEach(n => {
+    const el = app.querySelector(`[name=${n}]`);
+    if (el) state.patient[n] = el.value.trim();
+  });
+  ['gender','relationship'].forEach(n => {
+    const el = app.querySelector(`[name=${n}]:checked`);
+    state.patient[n] = el ? el.value : '';
+  });
+  const a = calcAge(state.patient.birthDate);
+  state.patient.age = a ? a.text : '';
+  state.patient.ageMonths = a ? a.months : null;
+}
+
+function collectSection(section) {
+  section.questions.forEach(q => {
+    if (q.type === 'checkbox') {
+      const els = app.querySelectorAll(`[data-qid="${q.id}"]:checked`);
+      if (app.querySelector(`[data-qid="${q.id}"]`)) state.answers[q.id] = [...els].map(e => e.value);
+    } else if (q.type === 'radio') {
+      const el = app.querySelector(`[data-qid="${q.id}"]:checked`);
+      if (app.querySelector(`[data-qid="${q.id}"]`)) state.answers[q.id] = el ? el.value : '';
+    } else {
+      const el = app.querySelector(`[data-qid="${q.id}"]`);
+      if (el) state.answers[q.id] = el.value.trim();
+    }
+  });
+}
+
+/* ---------- 必須チェック（要件6-1-4） ---------- */
+function validatePatient() {
+  const need = [['name','お子さまのお名前'],['nameKana','ふりがな'],['birthDate','生年月日'],
+                ['gender','性別'],['guardianName','保護者のお名前'],['relationship','続柄'],['phone','電話番号']];
+  const miss = need.filter(([k]) => !state.patient[k]).map(([,l]) => l);
+  if (state.patient.phone && !/^[0-9\-]{10,14}$/.test(state.patient.phone)) miss.push('電話番号（数字で入力してください）');
+  return miss;
+}
+
+function validateSection(section) {
+  return section.questions
+    .filter(q => q.required && isVisible(q))
+    .filter(q => {
+      const v = state.answers[q.id];
+      return v === undefined || v === '' || (Array.isArray(v) && !v.length);
+    })
+    .map(q => q.label);
+}
+
+function showMissing(list) {
+  const old = document.getElementById('missBox');
+  if (old) old.remove();
+  const html = `<div id="missBox" class="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 mb-4 fade">
+    <p class="font-bold text-rose-800">未入力の項目があります</p>
+    <ul class="mt-1.5 text-sm text-rose-700 space-y-0.5">${list.map(l=>'<li>・'+l+'</li>').join('')}</ul>
+  </div>`;
+  app.insertAdjacentHTML('afterbegin', html);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------- 4. 確認画面（要件6-1-5） ---------- */
+function renderConfirm() {
+  const q = MONSHIN_SCHEMA[state.visitType];
+  const vt = VISIT_TYPES.find(v => v.id === state.visitType);
+  const flags = detectUrgent();
+
+  const rows = [];
+  q.sections.forEach(s => {
+    const items = s.questions.filter(x => isVisible(x)).map(x => {
+      const v = state.answers[x.id];
+      const txt = Array.isArray(v) ? v.join('、') : (v ?? '');
+      if (txt === '') return '';
+      return `<div class="py-2.5 border-b border-slate-100 last:border-0">
+        <div class="text-xs text-slate-500">${x.label}</div>
+        <div class="font-medium text-slate-800 mt-0.5 whitespace-pre-wrap">${escapeHtml(fmtAnswer(txt, x))}</div>
+      </div>`;
+    }).filter(Boolean);
+    if (items.length) rows.push(`<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <div class="bg-slate-50 px-5 py-2.5 text-sm font-bold text-slate-700">${s.title}</div>
+      <div class="px-5 py-1">${items.join('')}</div></div>`);
+  });
+
+  const p = state.patient;
+  app.innerHTML = `
+    <div class="fade space-y-4">
+      ${sectionHead('入力内容の確認', '送信前にご確認ください')}
+      ${flags.length ? `<div class="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4">
+        <p class="font-bold text-rose-800">⚠️ 確認事項</p>
+        <ul class="mt-1.5 text-sm text-rose-700 space-y-0.5">${flags.map(f=>'<li>・'+f.msg+'</li>').join('')}</ul>
+        <p class="mt-2 text-sm text-rose-800">気になる場合は送信後、当院へお電話ください。</p>
+      </div>` : ''}
+      <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div class="bg-slate-50 px-5 py-2.5 text-sm font-bold text-slate-700">受診内容・患者さんの情報</div>
+        <div class="px-5 py-1">
+          ${confRow('受診内容', vt ? vt.label : '')}
+          ${confRow('お名前', p.name + '（' + p.nameKana + '）')}
+          ${confRow('生年月日', p.birthDate + '　' + (p.age||''))}
+          ${confRow('性別', p.gender)}
+          ${confRow('保護者', p.guardianName + '（' + p.relationship + '）')}
+          ${confRow('電話番号', p.phone)}
+          ${confRow('診察券番号', p.cardNo || '（なし）')}
+        </div>
+      </div>
+      ${rows.join('')}
+      <button id="btnEdit" class="w-full py-3 rounded-xl border-2 border-slate-300 text-slate-700 font-bold bg-white">最初から見直す</button>
+    </div>`;
+
+  document.getElementById('btnEdit').onclick = () => { state.stepIndex = 1; render(); };
+}
+
+function confRow(label, val) {
+  return `<div class="py-2.5 border-b border-slate-100 last:border-0">
+    <div class="text-xs text-slate-500">${label}</div>
+    <div class="font-medium text-slate-800 mt-0.5">${escapeHtml(String(val||''))}</div></div>`;
+}
+
+/* ---------- 5. 送信完了（要件6-1-6） ---------- */
+function renderDone() {
+  clearDraft();
+  app.innerHTML = `
+    <div class="fade text-center py-8">
+      <div class="text-6xl mb-4">✅</div>
+      <h2 class="text-2xl font-bold text-slate-800">送信が完了しました</h2>
+      <p class="text-slate-600 mt-2">ご協力ありがとうございました。</p>
+      <div class="mt-6 text-left bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        <p class="font-bold text-slate-800">ご来院時のお願い</p>
+        <ul class="text-sm text-slate-700 space-y-2 leading-relaxed">
+          <li>・受付で「WEB問診を送信しました」とお伝えください。</li>
+          <li>・<span class="font-bold">この送信だけでは受付は完了しません。</span>必ず受付までお声かけください。</li>
+          <li>・発熱や感染症が疑われる場合は、院内には入らず、到着時にお電話ください。別室または車内でお待ちいただく場合があります。</li>
+          <li>・保険証・医療証・母子手帳・お薬手帳をお持ちください。</li>
+        </ul>
+        <p class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3 leading-relaxed">
+          症状が急に悪くなった場合は、来院をお待ちにならず当院へお電話ください。
+          夜間・休日は救急相談窓口（＃8000）もご利用いただけます。
+        </p>
+      </div>
+      <button onclick="location.reload()" class="mt-6 px-6 py-3 rounded-xl border-2 border-slate-300 text-slate-700 font-bold bg-white">
+        続けて別の問診を入力する
+      </button>
+    </div>`;
+}
+
+/* ---------- ボタン操作 ---------- */
+btnNext.onclick = () => {
+  const step = state.steps[state.stepIndex];
+  const box = document.getElementById('missBox');
+  if (box) box.remove();
+
+  if (step.kind === 'patient') {
+    collectPatient();
+    const miss = validatePatient();
+    if (miss.length) return showMissing(miss);
+    saveDraft();
+  } else if (step.kind === 'section') {
+    collectSection(step.section);
+    const miss = validateSection(step.section);
+    if (miss.length) return showMissing(miss);
+    saveDraft();
+  } else if (step.kind === 'confirm') {
+    return submit();
+  }
+  state.stepIndex++;
+  // 表示条件により質問が1問も残らないセクションは飛ばす
+  while (state.steps[state.stepIndex]?.kind === 'section'
+         && !state.steps[state.stepIndex].section.questions.some(q => isVisible(q))) {
+    state.stepIndex++;
+  }
+  render();
+};
+
+btnBack.onclick = () => {
+  const step = state.steps[state.stepIndex];
+  if (step.kind === 'section') collectSection(step.section);
+  if (step.kind === 'patient') collectPatient();
+  state.stepIndex--;
+  while (state.steps[state.stepIndex]?.kind === 'section'
+         && !state.steps[state.stepIndex].section.questions.some(q => isVisible(q))) {
+    state.stepIndex--;
+  }
+  if (state.stepIndex < 0) state.stepIndex = 0;
+  render();
+};
+
+/* ---------- 送信 ---------- */
+function submit() {
+  btnNext.disabled = true;
+  btnNext.textContent = '送信しています...';
+  btnNext.classList.add('opacity-60');
+
+  const payload = {
+    visitType: state.visitType,
+    visitTypeLabel: (VISIT_TYPES.find(v => v.id === state.visitType) || {}).label || '',
+    patient: state.patient,
+    answers: state.answers,
+    urgentFlags: detectUrgent(),
+    summary: buildSummary(),
+    submittedAt: new Date().toISOString(),
+  };
+
+  const finish = () => { state.stepIndex = state.steps.length - 1; render(); };
+  const fail = (msg) => {
+    btnNext.disabled = false;
+    btnNext.textContent = 'この内容で送信する';
+    btnNext.classList.remove('opacity-60');
+    showMissing(['送信できませんでした：' + msg, '通信状況をご確認のうえ、もう一度お試しください。']);
+  };
+
+  if (IS_GAS) {
+    google.script.run.withSuccessHandler(r => r && r.success ? finish() : fail(r ? r.message : '不明なエラー'))
+                     .withFailureHandler(e => fail(e.message))
+                     .saveMonshin(payload);
+  } else {
+    // 単体HTMLで開いた場合：ブラウザ内に保存して管理画面デモから参照できるようにする
+    const list = JSON.parse(localStorage.getItem('maeba_monshin_list') || '[]');
+    payload.id = 'D' + Date.now();
+    payload.status = '未確認';
+    list.unshift(payload);
+    localStorage.setItem('maeba_monshin_list', JSON.stringify(list));
+    setTimeout(finish, 600);
+  }
+}
+
+/* 医院側一覧に出す「主な症状」を組み立てる。
+   summary に文字列を指定すると「見出し:回答」の形で出る（例 接触歴:あり）。 */
+function buildSummary() {
+  const picks = [];
+  currentQuestions().forEach(q => {
+    if (!q.summary) return;
+    const v = state.answers[q.id];
+    if (v === undefined || v === '' || (Array.isArray(v) && !v.length)) return;
+    const txt = (Array.isArray(v) ? v.join('、') : String(v)) + (q.type === 'temperature' ? '℃' : (q.unit || ''));
+    picks.push(typeof q.summary === 'string' ? q.summary + ':' + txt : txt);
+  });
+  return picks.join(' / ');
+}
+
+/* ---------- 途中保存（要件6-1-7） ---------- */
+function saveDraft() {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+      visitType: state.visitType, patient: state.patient, lookup: state.lookup,
+      answers: state.answers, stepIndex: state.stepIndex, at: Date.now(),
+    }));
+  } catch (e) { /* 保存できない環境では何もしない */ }
+}
+function clearDraft() { try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+
+function restoreDraft() {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null');
+    // 個人情報を長く残さないため、有効期限は2時間
+    if (!d || Date.now() - d.at > 2 * 60 * 60 * 1000) return false;
+    if (!MONSHIN_SCHEMA[d.visitType]) return false;
+    if (!confirm('前回の入力途中のデータがあります。続きから入力しますか？')) { clearDraft(); return false; }
+    state.visitType = d.visitType;
+    state.patient = d.patient || {};
+    state.answers = d.answers || {};
+    if (d.lookup) state.lookup = d.lookup;
+    buildSteps();
+    state.stepIndex = Math.min(d.stepIndex || 1, state.steps.length - 2);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ---------- ユーティリティ ---------- */
+function calcAge(birth) {
+  if (!birth) return null;
+  const b = new Date(birth), now = new Date();
+  if (isNaN(b.getTime()) || b > now) return null;
+  let months = (now.getFullYear() - b.getFullYear()) * 12 + (now.getMonth() - b.getMonth());
+  if (now.getDate() < b.getDate()) months--;
+  if (months < 0) return null;
+  const y = Math.floor(months / 12), m = months % 12;
+  const text = y === 0 ? m + 'か月' : (m === 0 ? y + '歳' : y + '歳' + m + 'か月');
+  return { months, years: y, text };
+}
+
+/* 回答を読みやすい形に整える（体温には℃、日時は和文の並びに） */
+function fmtAnswer(txt, q) {
+  if (txt === '') return '';
+  if (q.type === 'temperature') return txt + '℃';
+  if (q.type === 'date') {
+    const d = new Date(txt);
+    return isNaN(d.getTime()) ? txt : `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+  }
+  if (q.type === 'datetime-local') {
+    const d = new Date(txt);
+    if (isNaN(d.getTime())) return txt;
+    const p = n => ('0' + n).slice(-2);
+    return `${d.getMonth()+1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  return txt + (q.unit || '');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- 起動 ---------- */
+if (!IS_GAS) document.getElementById('demoBadge').classList.remove('hidden');
+if (!restoreDraft()) buildStepsInitial();
+function buildStepsInitial() { state.steps = [{ kind: 'visitType' }]; state.stepIndex = 0; }
+render();
+</script>
+</body>
+</html>
