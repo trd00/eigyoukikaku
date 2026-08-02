@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>まえば小児科 問診管理</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background:#f1f5f9; }
+  @media print {
+    .no-print { display:none !important; }
+    body { background:#fff; }
+    #detailPane { position:static !important; box-shadow:none !important; width:100% !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bg-slate-800 text-white px-5 py-3 sticky top-0 z-30 no-print">
+  <div class="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-lg font-bold">問診管理</h1>
+      <span id="demoBadge" class="hidden text-[11px] bg-amber-400 text-amber-950 font-bold px-2 py-0.5 rounded">デモ表示</span>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <label class="flex items-center gap-1.5">
+        <span class="text-slate-300">職種</span>
+        <select id="role" class="bg-slate-700 rounded px-2 py-1 text-white">
+          <option value="reception">受付</option>
+          <option value="nurse">看護師</option>
+          <option value="doctor">医師</option>
+          <option value="admin">管理者</option>
+        </select>
+      </label>
+      <button id="btnReload" class="bg-slate-700 hover:bg-slate-600 rounded px-3 py-1">更新</button>
+    </div>
+  </div>
+</header>
+
+<div class="max-w-7xl mx-auto px-4 py-5">
+
+  <!-- 集計 -->
+  <div id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 no-print"></div>
+
+  <!-- 絞り込み -->
+  <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 no-print">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <input id="fKeyword" placeholder="氏名・ふりがな・診察券番号・電話番号"
+        class="px-3 py-2 border border-slate-300 rounded-lg text-sm md:col-span-2">
+      <select id="fVisit" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <option value="">受診区分：すべて</option>
+      </select>
+      <select id="fStatus" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <option value="">状態：すべて</option>
+      </select>
+    </div>
+    <div class="flex flex-wrap gap-4 mt-3 text-sm">
+      <label class="flex items-center gap-1.5"><input type="checkbox" id="fUrgent" class="w-4 h-4 accent-rose-600"><span>要確認のみ</span></label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" id="fFever" class="w-4 h-4 accent-orange-600"><span>発熱ありのみ</span></label>
+      <label class="flex items-center gap-1.5"><input type="checkbox" id="fUnread" class="w-4 h-4 accent-sky-600"><span>未確認のみ</span></label>
+      <span class="flex-1"></span>
+      <button id="btnCsv" class="text-slate-600 underline">CSV出力</button>
+    </div>
+  </div>
+
+  <div id="list" class="space-y-2"></div>
+  <p id="empty" class="hidden text-center text-slate-400 py-16">該当する問診はありません</p>
+</div>
+
+<!-- 詳細（右からスライド） -->
+<div id="overlay" class="hidden fixed inset-0 bg-black/40 z-40 no-print"></div>
+<aside id="detailPane" class="hidden fixed top-0 right-0 h-full w-full md:w-[560px] bg-white z-50 shadow-2xl overflow-y-auto"></aside>
+
+<script src="monshin-schema.js"></script>
+<script>
+/* ============================================================
+   まえば小児科 WEB問診 — 医院側管理画面（要件7）
+   ============================================================ */
+
+const IS_GAS = typeof google !== 'undefined' && google.script && google.script.run;
+
+const STATUSES = ['未確認','受付確認済み','看護師確認済み','医師確認済み','診察完了','キャンセル'];
+
+/* 職種ごとに、更新できる状態を決める（要件7-5） */
+const ROLE_RULES = {
+  reception: { can: ['受付確認済み','キャンセル'],                     label: '受付' },
+  nurse:     { can: ['受付確認済み','看護師確認済み'],                 label: '看護師' },
+  doctor:    { can: ['看護師確認済み','医師確認済み','診察完了'],       label: '医師' },
+  admin:     { can: STATUSES,                                          label: '管理者' },
+};
+
+let records = [];
+let selectedId = null;
+
+/* ---------- 読み込み ---------- */
+function load() {
+  if (IS_GAS) {
+    google.script.run.withSuccessHandler(r => { records = r || []; renderAll(); })
+                     .withFailureHandler(e => alert('読み込みに失敗しました：' + e.message))
+                     .listMonshin();
+  } else {
+    const stored = JSON.parse(localStorage.getItem('maeba_monshin_list') || '[]');
+    records = stored.length ? stored : DEMO_RECORDS();
+    renderAll();
+  }
+}
+
+function renderAll() { renderStats(); renderList(); }
+
+/* ---------- 集計（要件16の効果測定にもつながる） ---------- */
+function renderStats() {
+  const today = new Date().toDateString();
+  const todays = records.filter(r => new Date(r.submittedAt).toDateString() === today);
+  const urgent = records.filter(r => (r.urgentFlags || []).length);
+  const unread = records.filter(r => (r.status || '未確認') === '未確認');
+  const fever  = records.filter(hasFever);
+
+  const cards = [
+    ['本日の問診',   todays.length, 'text-slate-800'],
+    ['未確認',       unread.length, 'text-sky-700'],
+    ['要確認あり',   urgent.length, 'text-rose-700'],
+    ['発熱あり',     fever.length,  'text-orange-700'],
+  ];
+  document.getElementById('stats').innerHTML = cards.map(([l,v,c]) => `
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-500">${l}</div>
+      <div class="text-3xl font-bold ${c} mt-1">${v}</div>
+    </div>`).join('');
+}
+
+/* ---------- 一覧（要件7-1・7-2） ---------- */
+function renderList() {
+  const kw     = document.getElementById('fKeyword').value.trim();
+  const visit  = document.getElementById('fVisit').value;
+  const status = document.getElementById('fStatus').value;
+  const onlyUrgent = document.getElementById('fUrgent').checked;
+  const onlyFever  = document.getElementById('fFever').checked;
+  const onlyUnread = document.getElementById('fUnread').checked;
+
+  const rows = records.filter(r => {
+    const p = r.patient || {};
+    if (kw) {
+      const hay = [p.name, p.nameKana, p.cardNo, p.phone].join(' ');
+      if (!hay.includes(kw)) return false;
+    }
+    if (visit && r.visitType !== visit) return false;
+    if (status && (r.status || '未確認') !== status) return false;
+    if (onlyUrgent && !(r.urgentFlags || []).length) return false;
+    if (onlyFever && !hasFever(r)) return false;
+    if (onlyUnread && (r.status || '未確認') !== '未確認') return false;
+    return true;
+  }).sort((a, b) => {
+    // 重症度の高いものを上に、その後は新しい順
+    const s = sev(b) - sev(a);
+    return s !== 0 ? s : new Date(b.submittedAt) - new Date(a.submittedAt);
+  });
+
+  document.getElementById('empty').classList.toggle('hidden', rows.length > 0);
+  document.getElementById('list').innerHTML = rows.map(rowHtml).join('');
+  document.querySelectorAll('[data-open]').forEach(el => {
+    el.onclick = () => openDetail(el.dataset.open);
+  });
+}
+
+function rowHtml(r) {
+  const p = r.patient || {};
+  const flags = r.urgentFlags || [];
+  const critical = flags.some(f => f.level === 'critical');
+  const st = r.status || '未確認';
+  const temp = feverTemp(r);
+
+  return `
+  <div data-open="${r.id}" class="bg-white rounded-xl border-2 ${critical ? 'border-rose-400' : flags.length ? 'border-amber-300' : 'border-slate-200'} p-4 cursor-pointer hover:shadow-md transition-shadow">
+    <div class="flex items-start gap-3 flex-wrap">
+      <div class="flex-1 min-w-[200px]">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${critical ? '<span class="text-xs font-bold bg-rose-600 text-white px-2 py-0.5 rounded">要至急確認</span>'
+            : flags.length ? '<span class="text-xs font-bold bg-amber-500 text-white px-2 py-0.5 rounded">要確認</span>' : ''}
+          <span class="font-bold text-lg text-slate-800">${esc(p.name || '')}</span>
+          <span class="text-sm text-slate-500">${esc(p.nameKana || '')}</span>
+          <span class="text-sm font-medium text-sky-700">${esc(p.age || '')}</span>
+          <span class="text-sm text-slate-500">${esc(p.gender || '')}</span>
+        </div>
+        <div class="mt-1.5 flex items-center gap-2 flex-wrap text-sm">
+          <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">${esc(r.visitTypeLabel || '')}</span>
+          ${temp ? `<span class="${temp >= 38 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-700'} px-2 py-0.5 rounded font-bold">${temp}℃</span>` : ''}
+          ${p.cardNo ? `<span class="text-slate-500">診察券 ${esc(p.cardNo)}</span>` : '<span class="text-slate-400">診察券番号なし</span>'}
+        </div>
+        ${r.summary ? `<div class="mt-1.5 text-sm text-slate-600">${esc(r.summary)}</div>` : ''}
+        ${flags.length ? `<div class="mt-1.5 text-sm ${critical ? 'text-rose-700' : 'text-amber-700'} font-medium">
+          ${flags.slice(0, 2).map(f => '⚠ ' + esc(f.msg)).join('　')}${flags.length > 2 ? ' 他' + (flags.length - 2) + '件' : ''}
+        </div>` : ''}
+      </div>
+      <div class="text-right">
+        <span class="inline-block text-xs font-bold px-2.5 py-1 rounded ${statusColor(st)}">${st}</span>
+        <div class="text-xs text-slate-400 mt-1.5">${fmtTime(r.submittedAt)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- 詳細（要件7-3） ---------- */
+function openDetail(id) {
+  const r = records.find(x => String(x.id) === String(id));
+  if (!r) return;
+  selectedId = id;
+  const p = r.patient || {};
+  const flags = r.urgentFlags || [];
+  const schema = MONSHIN_SCHEMA[r.visitType];
+  const role = document.getElementById('role').value;
+  const allowed = ROLE_RULES[role].can;
+
+  /* 回答をセクション順に並べ直す */
+  let body = '';
+  if (schema) {
+    schema.sections.forEach(s => {
+      const items = s.questions.map(q => {
+        const v = r.answers[q.id];
+        const txt = Array.isArray(v) ? v.join('、') : (v ?? '');
+        if (txt === '') return '';
+        const hot = flags.some(f => f.qid === q.id);
+        return `<div class="py-2 border-b border-slate-100 last:border-0 ${hot ? 'bg-rose-50 -mx-3 px-3 rounded' : ''}">
+          <div class="text-xs text-slate-500">${esc(q.label)}</div>
+          <div class="font-medium ${hot ? 'text-rose-800' : 'text-slate-800'} mt-0.5 whitespace-pre-wrap">${esc(fmtAnswer(txt, q))}</div>
+        </div>`;
+      }).filter(Boolean);
+      if (items.length) body += `
+        <div class="mb-4">
+          <div class="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">${esc(s.title)}</div>
+          <div class="px-3 mt-1">${items.join('')}</div>
+        </div>`;
+    });
+  }
+
+  const pane = document.getElementById('detailPane');
+  pane.innerHTML = `
+    <div class="sticky top-0 bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between no-print">
+      <div class="font-bold text-slate-800">問診の詳細</div>
+      <div class="flex gap-2">
+        <button onclick="window.print()" class="text-sm px-3 py-1.5 border border-slate-300 rounded-lg">印刷</button>
+        <button id="btnClose" class="text-sm px-3 py-1.5 bg-slate-800 text-white rounded-lg">閉じる</button>
+      </div>
+    </div>
+    <div class="p-5">
+      ${flags.length ? `
+        <div class="mb-4 rounded-xl border-2 ${flags.some(f=>f.level==='critical') ? 'border-rose-400 bg-rose-50' : 'border-amber-400 bg-amber-50'} p-4">
+          <div class="font-bold ${flags.some(f=>f.level==='critical') ? 'text-rose-800' : 'text-amber-800'}">⚠ 確認が必要な項目</div>
+          <ul class="mt-1.5 text-sm space-y-1 ${flags.some(f=>f.level==='critical') ? 'text-rose-700' : 'text-amber-800'}">
+            ${flags.map(f => '<li>・' + esc(f.msg) + '</li>').join('')}
+          </ul>
+        </div>` : ''}
+
+      <div class="mb-4">
+        <div class="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">患者情報</div>
+        <div class="px-3 mt-1 grid grid-cols-2 gap-x-4">
+          ${kv('氏名', p.name)}${kv('ふりがな', p.nameKana)}
+          ${kv('生年月日', p.birthDate)}${kv('年齢', p.age)}
+          ${kv('性別', p.gender)}${kv('診察券番号', p.cardNo || 'なし')}
+          ${kv('保護者', (p.guardianName||'') + '（' + (p.relationship||'') + '）')}${kv('電話番号', p.phone)}
+          ${kv('住所', p.address || '未記入')}${kv('受診区分', r.visitTypeLabel)}
+          ${kv('送信日時', fmtTime(r.submittedAt))}
+        </div>
+      </div>
+
+      ${body}
+
+      <div class="mt-6 pt-4 border-t border-slate-200 no-print">
+        <div class="text-sm font-bold text-slate-700 mb-2">確認状況の更新（${ROLE_RULES[role].label}）</div>
+        <div class="flex flex-wrap gap-2">
+          ${STATUSES.map(s => {
+            const can = allowed.includes(s);
+            const cur = (r.status || '未確認') === s;
+            return `<button data-status="${s}" ${can ? '' : 'disabled'}
+              class="px-3 py-2 rounded-lg text-sm font-medium border-2 ${cur ? 'border-slate-800 bg-slate-800 text-white' : can ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-500' : 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed'}">${s}</button>`;
+          }).join('')}
+        </div>
+        <p class="text-xs text-slate-500 mt-2">職種によって変更できる状態が異なります。</p>
+      </div>
+    </div>`;
+
+  pane.classList.remove('hidden');
+  document.getElementById('overlay').classList.remove('hidden');
+  document.getElementById('btnClose').onclick = closeDetail;
+  pane.querySelectorAll('[data-status]:not([disabled])').forEach(b => {
+    b.onclick = () => updateStatus(r, b.dataset.status);
+  });
+}
+
+function closeDetail() {
+  document.getElementById('detailPane').classList.add('hidden');
+  document.getElementById('overlay').classList.add('hidden');
+  selectedId = null;
+}
+document.getElementById('overlay').onclick = closeDetail;
+
+function updateStatus(r, status) {
+  r.status = status;
+  if (IS_GAS) {
+    google.script.run.withFailureHandler(e => alert('更新に失敗しました：' + e.message))
+                     .updateMonshinStatus(r.id, status, document.getElementById('role').value);
+  } else {
+    const list = JSON.parse(localStorage.getItem('maeba_monshin_list') || '[]');
+    const t = list.find(x => String(x.id) === String(r.id));
+    if (t) { t.status = status; localStorage.setItem('maeba_monshin_list', JSON.stringify(list)); }
+  }
+  renderAll();
+  openDetail(r.id);
+}
+
+/* ---------- CSV出力（要件7-6） ---------- */
+document.getElementById('btnCsv').onclick = () => {
+  const head = ['送信日時','氏名','ふりがな','生年月日','年齢','性別','診察券番号','電話番号','保護者','続柄','受診区分','主な症状','体温','要確認','状態'];
+  const lines = [head.join(',')];
+  records.forEach(r => {
+    const p = r.patient || {};
+    lines.push([
+      fmtTime(r.submittedAt), p.name, p.nameKana, p.birthDate, p.age, p.gender, p.cardNo, p.phone,
+      p.guardianName, p.relationship, r.visitTypeLabel, r.summary, feverTemp(r) || '',
+      (r.urgentFlags || []).map(f => f.msg).join(' / '), r.status || '未確認',
+    ].map(csvCell).join(','));
+  });
+  // Excelで開いたときに文字化けしないようBOMを付ける
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '問診_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+function csvCell(v) {
+  const s = String(v ?? '');
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/* ---------- ユーティリティ ---------- */
+function sev(r) {
+  const f = r.urgentFlags || [];
+  if (f.some(x => x.level === 'critical')) return 2;
+  return f.length ? 1 : 0;
+}
+
+function feverTemp(r) {
+  const a = r.answers || {};
+  const t = a.v_temp ?? a.f_temp ?? a.r_temp ?? a.w_temp;
+  const n = Number(t);
+  return isNaN(n) || !t ? null : n;
+}
+
+function hasFever(r) {
+  const t = feverTemp(r);
+  if (t !== null && t >= 37.5) return true;
+  const a = r.answers || {};
+  return [a.f_symptoms, a.r_symptoms, a.v_symptoms].some(v => Array.isArray(v) && v.includes('発熱'));
+}
+
+function statusColor(s) {
+  return {
+    '未確認':       'bg-sky-100 text-sky-800',
+    '受付確認済み': 'bg-slate-200 text-slate-700',
+    '看護師確認済み':'bg-teal-100 text-teal-800',
+    '医師確認済み': 'bg-indigo-100 text-indigo-800',
+    '診察完了':     'bg-emerald-100 text-emerald-800',
+    'キャンセル':   'bg-slate-100 text-slate-400',
+  }[s] || 'bg-slate-100 text-slate-700';
+}
+
+function kv(k, v) {
+  return `<div class="py-1.5">
+    <div class="text-xs text-slate-500">${k}</div>
+    <div class="font-medium text-slate-800 text-sm">${esc(String(v ?? ''))}</div></div>`;
+}
+
+/* 回答を読みやすい形に整える（体温には℃、日時は和文の並びに） */
+function fmtAnswer(txt, q) {
+  if (txt === '') return '';
+  if (q.type === 'temperature') return txt + '℃';
+  if (q.type === 'date') {
+    const d = new Date(txt);
+    return isNaN(d.getTime()) ? txt : `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+  }
+  if (q.type === 'datetime-local') {
+    const d = new Date(txt);
+    if (isNaN(d.getTime())) return txt;
+    const p = n => ('0' + n).slice(-2);
+    return `${d.getMonth()+1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  return txt + (q.unit || '');
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const p = n => ('0' + n).slice(-2);
+  return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- デモ用データ（GAS未接続かつ送信履歴がないとき） ---------- */
+function DEMO_RECORDS() {
+  const now = Date.now();
+  const ago = m => new Date(now - m * 60000).toISOString();
+  return [
+    { id: 'demo1', visitType: 'fever', visitTypeLabel: '発熱・かぜ・感染症', status: '未確認', submittedAt: ago(12),
+      patient: { name: '前場 花子', nameKana: 'まえば はなこ', birthDate: '2024-11-10', age: '1歳8か月',
+                 gender: '女の子', guardianName: '前場 里美', relationship: '母', phone: '09011112222', cardNo: '10234', address: '〇〇市〇〇町1-2-3' },
+      answers: { v_temp: '39.4', v_temp_max: '39.8', v_fever_start: '2026-08-01T21:00',
+                 v_antipyretic: 'あり', v_antipyretic_name: 'カロナール',
+                 v_symptoms: ['せき','鼻水・鼻づまり'], v_drink: 'ほとんど飲めない', v_eat: '食べられない',
+                 v_urine: '少ない', v_energy: 'ぐったりしている', v_consciousness: '少しぼんやりしている',
+                 v_contact: 'あり', v_contact_detail: ['インフルエンザ'], v_contact_who: '兄　保育園で流行',
+                 v_want_test: '希望する', v_note: '昨夜から水分をあまりとってくれません。' },
+      summary: '39.4 / せき、鼻水・鼻づまり / あり',
+      urgentFlags: [
+        { qid: 'v_drink', msg: '水分がとれていません。脱水の心配があります。', level: 'critical' },
+        { qid: 'v_energy', msg: 'ぐったりしているとの回答があります。', level: 'critical' },
+        { qid: 'v_contact', msg: '感染症の接触歴があります。', level: 'high' },
+      ] },
+    { id: 'demo2', visitType: 'vaccine', visitTypeLabel: '予防接種', status: '受付確認済み', submittedAt: ago(38),
+      patient: { name: '前場 一郎', nameKana: 'まえば いちろう', birthDate: '2025-12-20', age: '7か月',
+                 gender: '男の子', guardianName: '前場 健', relationship: '父', phone: '08033334444', cardNo: '10877', address: '〇〇市〇〇町4-5-6' },
+      answers: { w_vaccines: ['五種混合','小児用肺炎球菌'], w_dose: '3回目', w_boshi: '持参する',
+                 w_temp: '36.8', w_condition: '元気で変わりない', w_recent_fever: 'なし',
+                 w_recent_vaccine: 'なし', w_reaction: 'なし', w_allergy: 'なし', w_seizure: 'なし',
+                 w_disease: 'なし', w_meds: 'なし' },
+      summary: '五種混合、小児用肺炎球菌', urgentFlags: [] },
+    { id: 'demo3', visitType: 'checkup', visitTypeLabel: '健診', status: '医師確認済み', submittedAt: ago(75),
+      patient: { name: '前場 桃子', nameKana: 'まえば ももこ', birthDate: '2025-01-05', age: '1歳6か月',
+                 gender: '女の子', guardianName: '前場 直美', relationship: '母', phone: '07055556666', cardNo: '10555', address: '〇〇市〇〇町7-8-9' },
+      answers: { c_type: '1歳6か月健診', c_height: '78', c_weight: '9.4', c_meal: '好き嫌いが多い',
+                 c_sleep: '夜中に何度も起きる', c_poop: '2〜3日に1回',
+                 c_worry_growth: 'なし', c_worry_motor: 'なし',
+                 c_worry_speech: 'あり', c_worry_speech_detail: 'まだ意味のある言葉が出ません。',
+                 c_worry_dev: 'なし', c_allergy: 'なし', c_meds: 'なし',
+                 c_note: '偏食が強く、野菜をまったく食べません。' },
+      summary: '1歳6か月健診', urgentFlags: [] },
+    { id: 'demo4', visitType: 'first', visitTypeLabel: '初めての受診', status: '未確認', submittedAt: ago(5),
+      patient: { name: '前場 大輔', nameKana: 'まえば だいすけ', birthDate: '2026-06-15', age: '1か月',
+                 gender: '男の子', guardianName: '前場 あゆみ', relationship: '母', phone: '09077778888', cardNo: '', address: '〇〇市〇〇町2-3-4' },
+      answers: { f_symptoms: ['発熱','元気がない'], f_onset: '2026-08-02', f_course: '悪くなってきている',
+                 f_temp: '38.4', f_history: 'なし', f_admission: 'なし', f_surgery: 'なし',
+                 f_allergy: 'わからない', f_meds: 'なし', f_other_clinic: 'なし',
+                 f_birth_week: '39', f_birth_weight: '3120', f_vaccine_status: '受けていないものがある',
+                 f_note: '生後1か月で熱が出ました。心配です。' },
+      summary: '発熱、元気がない / 悪くなってきている',
+      urgentFlags: [
+        { qid: 'f_temp', msg: '生後3か月未満で38℃以上の発熱です。すぐにお電話ください。', level: 'critical' },
+        { qid: 'f_course', msg: '症状が悪化しています。診察までに強くなるようならご連絡ください。', level: 'high' },
+      ] },
+    { id: 'demo5', visitType: 'repeat', visitTypeLabel: '再診', status: '診察完了', submittedAt: ago(140),
+      patient: { name: '前場 さくら', nameKana: 'まえば さくら', birthDate: '2021-03-30', age: '5歳4か月',
+                 gender: '女の子', guardianName: '前場 恵', relationship: '母', phone: '09099990000', cardNo: '10099', address: '〇〇市〇〇町5-6-7' },
+      answers: { r_symptoms: ['せき'], r_course: '少しよくなった', r_new: 'なし', r_temp: '36.9',
+                 r_taking: 'ときどき飲めていない', r_taking_reason: '苦くて嫌がる',
+                 r_effect: '効いている', r_side: 'なし', r_other_clinic: 'なし',
+                 r_note: '粉薬が苦手なので、飲みやすいものがあれば相談したいです。' },
+      summary: 'せき', urgentFlags: [] },
+  ];
+}
+
+/* ---------- 起動 ---------- */
+if (!IS_GAS) document.getElementById('demoBadge').classList.remove('hidden');
+
+/* 絞り込みの選択肢を、質問定義から生成する */
+document.getElementById('fVisit').insertAdjacentHTML('beforeend',
+  VISIT_TYPES.map(v => `<option value="${v.id}">${v.label}</option>`).join(''));
+document.getElementById('fStatus').insertAdjacentHTML('beforeend',
+  STATUSES.map(s => `<option value="${s}">${s}</option>`).join(''));
+
+['fKeyword','fVisit','fStatus','fUrgent','fFever','fUnread'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', renderList);
+});
+document.getElementById('btnReload').onclick = load;
+document.getElementById('role').onchange = () => { if (selectedId) openDetail(selectedId); };
+
+load();
+</script>
+</body>
+</html>
