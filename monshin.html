@@ -65,6 +65,8 @@ const state = {
   answers: {},
   stepIndex: 0,
   steps: [],
+  // 登録情報の呼び出し（要件6-1-2）の入力状態
+  lookup: { status: '', cardNo: '', birthDate: '', name: '', message: '' },
 };
 
 /* ---------- 画面遷移の骨格 ----------
@@ -167,6 +169,7 @@ function renderPatient() {
   app.innerHTML = `
     <div class="fade space-y-4">
       ${sectionHead('患者さんの情報', '受付での確認に使用します')}
+      ${lookupCard()}
       <div class="bg-white rounded-2xl p-5 border border-slate-200 space-y-4">
         ${field('お子さまのお名前', 'name', 'text', p.name, true, '例：前場 太郎')}
         ${field('ふりがな', 'nameKana', 'text', p.nameKana, true, '例：まえば たろう')}
@@ -191,6 +194,141 @@ function renderPatient() {
   };
   bd.addEventListener('change', showAge);
   showAge();
+  bindLookup();
+}
+
+/* ---------- 登録情報の呼び出し（要件6-1-2） ----------
+   受付に登録済みの方は、診察券番号と生年月日を入れるだけで
+   氏名・保護者名・電話番号などが入る。入力の手間を減らすための機能。
+
+   診察券番号だけでは呼び出さない。問診のURLは誰でも開けるため、
+   番号を順に試すだけで患者名を集められる作りにしないため。 */
+function lookupCard() {
+  const lk = state.lookup;
+
+  if (lk.status === 'ok') {
+    return `
+      <div class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4">
+        <p class="font-bold text-emerald-900">✓ 登録情報を読み込みました</p>
+        <p class="text-sm text-emerald-800 mt-1 leading-relaxed">
+          ${escapeHtml(lk.name)} さんの情報です。<br>
+          お引越しや電話番号の変更などがあれば、下の欄を直してください。
+        </p>
+        <button id="lkReset" class="mt-3 text-sm font-bold text-emerald-800 underline">別の診察券番号で読み込む</button>
+      </div>`;
+  }
+
+  return `
+    <div class="bg-sky-50 border-2 border-sky-200 rounded-2xl p-4">
+      <p class="font-bold text-slate-800">診察券をお持ちの方</p>
+      <p class="text-sm text-slate-600 mt-1 leading-relaxed">
+        診察券番号と生年月日を入れると、受付に登録されているお名前などを呼び出せます。
+      </p>
+      <div class="mt-3 space-y-3">
+        <div>
+          <label class="block font-bold text-slate-800 text-sm">診察券番号</label>
+          <input type="text" inputmode="numeric" name="lkCardNo" value="${escapeHtml(lk.cardNo)}" placeholder="例：12345"
+            class="mt-1.5 w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-800 text-sm">お子さまの生年月日</label>
+          <input type="date" name="lkBirth" value="${escapeHtml(lk.birthDate)}"
+            class="mt-1.5 w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
+        </div>
+        <button id="lkGo" class="opt w-full rounded-xl bg-sky-600 text-white font-bold active:bg-sky-700">登録情報を呼び出す</button>
+        ${lk.message ? `<p class="text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-lg p-3">${escapeHtml(lk.message)}</p>` : ''}
+        <p class="text-xs text-slate-500 leading-relaxed">
+          初めての受診の方、診察券が手元にない方は、そのまま下の欄へご入力ください。<br>
+          マイナンバーカードの12桁の番号は使用しません。
+        </p>
+      </div>
+    </div>`;
+}
+
+function bindLookup() {
+  const reset = document.getElementById('lkReset');
+  if (reset) {
+    reset.onclick = () => {
+      collectPatient();
+      state.lookup = { status: '', cardNo: '', birthDate: '', name: '', message: '' };
+      render();
+    };
+  }
+
+  const go = document.getElementById('lkGo');
+  if (!go) return;
+
+  go.onclick = () => {
+    // 呼び出しで画面を描き直すため、手入力済みの内容を先に控えておく
+    collectPatient();
+
+    const no = app.querySelector('[name=lkCardNo]').value.trim();
+    const bd = app.querySelector('[name=lkBirth]').value;
+    state.lookup.cardNo = no;
+    state.lookup.birthDate = bd;
+
+    if (/^[0-9]{12}$/.test(no.replace(/[\s-]/g, ''))) {
+      state.lookup.message = 'マイナンバー（12桁の番号）は問診では使用しません。診察券番号をご入力ください。';
+      render();
+      return;
+    }
+    if (!no || !bd) {
+      state.lookup.message = '診察券番号と生年月日の両方をご入力ください。';
+      render();
+      return;
+    }
+
+    go.disabled = true;
+    go.textContent = '呼び出しています...';
+    go.classList.add('opacity-60');
+
+    requestLookup(no, bd, r => {
+      if (r && r.success) {
+        Object.assign(state.patient, r.patient);
+        // 年齢は表示だけでなく質問の出し分けにも使うので、ここでそろえておく
+        const a = calcAge(state.patient.birthDate);
+        state.patient.age = a ? a.text : '';
+        state.patient.ageMonths = a ? a.months : null;
+        state.lookup = { status: 'ok', cardNo: no, birthDate: bd, name: r.patient.name, message: '' };
+      } else {
+        state.lookup.message = (r && r.message) || '呼び出せませんでした。そのまま下の欄へご入力ください。';
+      }
+      render();
+      saveDraft();
+    });
+  };
+}
+
+function requestLookup(cardNo, birthDate, cb) {
+  if (IS_GAS) {
+    google.script.run
+      .withSuccessHandler(cb)
+      .withFailureHandler(e => cb({ success: false, message: '通信できませんでした。そのまま下の欄へご入力ください。' }))
+      .lookupPatient(cardNo, birthDate);
+  } else {
+    // 単体HTMLで開いた場合のデモ動作
+    setTimeout(() => cb(demoLookup(cardNo, birthDate)), 400);
+  }
+}
+
+/* デモ用の登録データ。管理画面のデモ患者と同じ内容にしてある。 */
+const DEMO_PATIENTS = [
+  { cardNo: '10234', name: '前場 花子', nameKana: 'まえば はなこ', birthDate: '2024-11-10', gender: '女の子',
+    guardianName: '前場 里美', relationship: '母', phone: '09011112222', address: '〇〇市〇〇町1-2-3' },
+  { cardNo: '10877', name: '前場 一郎', nameKana: 'まえば いちろう', birthDate: '2025-12-20', gender: '男の子',
+    guardianName: '前場 健', relationship: '父', phone: '08033334444', address: '〇〇市〇〇町4-5-6' },
+  { cardNo: '10555', name: '前場 桃子', nameKana: 'まえば ももこ', birthDate: '2025-01-05', gender: '女の子',
+    guardianName: '前場 直美', relationship: '母', phone: '07055556666', address: '〇〇市〇〇町7-8-9' },
+  { cardNo: '10099', name: '前場 さくら', nameKana: 'まえば さくら', birthDate: '2021-03-30', gender: '女の子',
+    guardianName: '前場 恵', relationship: '母', phone: '09099990000', address: '〇〇市〇〇町5-6-7' },
+];
+
+function demoLookup(cardNo, birthDate) {
+  const no = String(cardNo).replace(/[\s-]/g, '');
+  const hit = DEMO_PATIENTS.find(p => p.cardNo === no && p.birthDate === birthDate);
+  return hit
+    ? { success: true, patient: Object.assign({}, hit) }
+    : { success: false, message: '登録が見つかりませんでした。番号と生年月日をご確認ください。' };
 }
 
 /* ---------- 3. 問診セクション ---------- */
@@ -389,7 +527,7 @@ function sectionHead(title, desc) {
 function field(label, name, type, val, req, ph) {
   return `<div>
     <label class="block font-bold text-slate-800 text-sm">${label}${req?' <span class="text-rose-500">必須</span>':''}</label>
-    <input type="${type}" name="${name}" value="${val ?? ''}" placeholder="${ph||''}"
+    <input type="${type}" name="${name}" value="${escapeHtml(val ?? '')}" placeholder="${ph||''}"
       class="mt-1.5 w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-sky-500 outline-none">
   </div>`;
 }
@@ -647,7 +785,7 @@ function buildSummary() {
 function saveDraft() {
   try {
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-      visitType: state.visitType, patient: state.patient,
+      visitType: state.visitType, patient: state.patient, lookup: state.lookup,
       answers: state.answers, stepIndex: state.stepIndex, at: Date.now(),
     }));
   } catch (e) { /* 保存できない環境では何もしない */ }
@@ -664,6 +802,7 @@ function restoreDraft() {
     state.visitType = d.visitType;
     state.patient = d.patient || {};
     state.answers = d.answers || {};
+    if (d.lookup) state.lookup = d.lookup;
     buildSteps();
     state.stepIndex = Math.min(d.stepIndex || 1, state.steps.length - 2);
     return true;

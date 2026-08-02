@@ -17,6 +17,7 @@
 
 const MONSHIN_SHEET = '問診データ';
 const MONSHIN_LOG_SHEET = '操作履歴';
+const PATIENT_SHEET = '患者マスタ';
 
 /* 保存期間（要件11-2）。この日数を過ぎた問診は purgeOldMonshin() で削除する。
    実際の日数は院内の個人情報保護方針に合わせて決める。 */
@@ -27,6 +28,15 @@ const MONSHIN_HEADERS = [
   '氏名', 'ふりがな', '生年月日', '年齢', '性別',
   '保護者氏名', '続柄', '電話番号', '診察券番号', '住所',
   '主な症状', '要確認', '状態', '回答JSON',
+];
+
+/* 受付で登録済みの患者情報（要件6-1-2）。
+   電子カルテからCSVで書き出したものを貼り付けて使う。
+   ※「生年月日」「電話番号」の列は、書式を「書式なしテキスト」にしておく。
+     数値として扱われると、電話番号の先頭の0が消える。 */
+const PATIENT_HEADERS = [
+  '診察券番号', '氏名', 'ふりがな', '生年月日', '性別',
+  '保護者氏名', '続柄', '電話番号', '郵便番号', '住所',
 ];
 
 /* ---------- 画面の表示 ---------- */
@@ -62,6 +72,19 @@ function setupMonshinSheets() {
          .setFontWeight('bold').setBackground('#e2e8f0');
   }
 
+  let master = ss.getSheetByName(PATIENT_SHEET);
+  if (!master) {
+    master = ss.insertSheet(PATIENT_SHEET);
+    master.appendRow(PATIENT_HEADERS);
+    master.setFrozenRows(1);
+    master.getRange(1, 1, 1, PATIENT_HEADERS.length)
+          .setFontWeight('bold').setBackground('#e2e8f0');
+    // 先頭の0が消えないよう、番号と日付の列は文字列として扱う
+    master.getRange(2, 1, master.getMaxRows() - 1, 1).setNumberFormat('@');   // 診察券番号
+    master.getRange(2, 4, master.getMaxRows() - 1, 1).setNumberFormat('@');   // 生年月日
+    master.getRange(2, 8, master.getMaxRows() - 1, 2).setNumberFormat('@');   // 電話番号・郵便番号
+  }
+
   let log = ss.getSheetByName(MONSHIN_LOG_SHEET);
   if (!log) {
     log = ss.insertSheet(MONSHIN_LOG_SHEET);
@@ -71,6 +94,117 @@ function setupMonshinSheets() {
   }
 
   return 'セットアップが完了しました';
+}
+
+/* ============================================================
+   登録情報の呼び出し（要件6-1-2）
+
+   患者マスタから、受付で登録済みの氏名などを引き当てて返す。
+
+   診察券番号「だけ」で名前が返る作りにはしない。
+   問診のURLは誰でも開けるため、番号を1つずつ試すだけで
+   患者名と住所を集められてしまう。
+   診察券番号と生年月日の2つが一致した場合だけ返す。
+
+   マイナンバー（個人番号）は扱わない。番号法が定める利用範囲は
+   社会保障・税・災害対策の事務に限られており、問診での本人確認は
+   そこに含まれない。12桁の数字が入力された場合は照会せずに止める。
+   ============================================================ */
+
+/* 番号を順に試されるのを防ぐ。同じ診察券番号への照会は10分に5回まで。 */
+const LOOKUP_MAX_PER_CARD = 5;
+/* 医院全体でも上限を設ける。通常の来院数では届かない値にしておく。 */
+const LOOKUP_MAX_TOTAL = 200;
+const LOOKUP_WINDOW_SEC = 600;
+
+function lookupPatient(cardNo, birthDate) {
+  const no = normCardNo(cardNo);
+  const bd = normDate(birthDate);
+
+  if (/^[0-9]{12}$/.test(no)) {
+    return { success: false, message: 'マイナンバー（12桁の番号）は問診では使用しません。診察券番号をご入力ください。' };
+  }
+  if (!no || !bd) {
+    return { success: false, message: '診察券番号と生年月日の両方をご入力ください。' };
+  }
+  if (!lookupAllowed(no)) {
+    return { success: false, message: '照会の回数が上限に達しました。お手数ですが、そのまま下の欄へご入力ください。' };
+  }
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PATIENT_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { success: false, message: '登録情報を呼び出せませんでした。そのまま下の欄へご入力ください。' };
+  }
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, PATIENT_HEADERS.length).getValues();
+
+  for (var i = 0; i < values.length; i++) {
+    const r = values[i];
+    if (normCardNo(r[0]) === no && normDate(r[3]) === bd) {
+      writeLog('登録情報の照会（一致）', no, '患者', '');
+      return {
+        success: true,
+        patient: {
+          cardNo: String(r[0]).trim(),
+          name: String(r[1]).trim(),
+          nameKana: String(r[2]).trim(),
+          birthDate: bd,
+          gender: String(r[4]).trim(),
+          guardianName: String(r[5]).trim(),
+          relationship: String(r[6]).trim(),
+          phone: String(r[7] == null ? '' : r[7]).replace(/[^0-9\-]/g, ''),
+          address: String(r[9]).trim(),
+        },
+      };
+    }
+  }
+
+  // 番号が存在するかどうかを悟られないよう、不一致の理由は分けない
+  writeLog('登録情報の照会（不一致）', no, '患者', '');
+  return { success: false, message: '登録が見つかりませんでした。番号と生年月日をご確認ください。' };
+}
+
+function lookupAllowed(no) {
+  try {
+    const cache = CacheService.getScriptCache();
+
+    const perCard = Number(cache.get('lk_' + no) || 0) + 1;
+    cache.put('lk_' + no, String(perCard), LOOKUP_WINDOW_SEC);
+    if (perCard > LOOKUP_MAX_PER_CARD) return false;
+
+    const total = Number(cache.get('lk_total') || 0) + 1;
+    cache.put('lk_total', String(total), LOOKUP_WINDOW_SEC);
+    if (total > LOOKUP_MAX_TOTAL) {
+      writeLog('照会が医院全体の上限に達しました', '', 'システム', '');
+      return false;
+    }
+    return true;
+
+  } catch (e) {
+    return true;   // キャッシュが使えない環境では照会自体は通す
+  }
+}
+
+/* 全角の英数字を半角にし、空白とハイフンを取り除く。
+   「０１２３４」「01234」「0-1234」を同じものとして扱うため。 */
+function normCardNo(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    })
+    .replace(/[\s\-ー－]/g, '')
+    .toUpperCase();
+}
+
+/* 日付を yyyy-MM-dd にそろえる。
+   シートの値が日付型でも「2020/4/1」のような文字列でも同じ結果にする。 */
+function normDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) return Utilities.formatDate(v, 'JST', 'yyyy-MM-dd');
+  const m = String(v).trim().replace(/[\/\.]/g, '-').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return '';
+  return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
 }
 
 /* ---------- 問診の保存（患者側から呼ばれる） ---------- */
