@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
+    />
+    <title>TRD GOLF PROJECT</title>
+    <meta name="description" content="80台前半を、特別ではなく日常へ。練習継続・番手別キャリー・スコア管理を1つで。" />
+    <meta name="theme-color" content="#0b1622" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="noindex" />
+
+    <!-- iPhoneのホーム画面からアプリ風に起動する -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TRD GOLF" />
+    <link rel="apple-touch-icon" href="./icons/icon-180.png" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1 class="app-title">TRD GOLF <span>PROJECT</span></h1>
+      <p class="app-tagline">80台前半を、特別ではなく日常へ。</p>
+    </header>
+
+    <main>
+      <!-- ================= ホーム ================= -->
+      <div class="view" id="view-home">
+        <div class="hero">
+          <p class="hero-label">PROJECT DAY</p>
+          <p class="hero-day" id="home-day">001</p>
+          <p class="hero-sub" id="home-start">開始日 —</p>
+          <div class="stat-grid">
+            <div class="stat">
+              <span class="stat-value" id="home-done">0</span>
+              <span class="stat-label">実施日</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="home-missed">0</span>
+              <span class="stat-label">未実施日</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value accent" id="home-rate">—</span>
+              <span class="stat-label">達成率</span>
+            </div>
+          </div>
+        </div>
+
+        <section class="card">
+          <p class="card-title"><span id="home-today-label">今日のメニュー</span></p>
+          <div class="menu-head">
+            <div class="menu-day" id="home-weekday">日</div>
+            <div>
+              <p class="menu-title" id="home-menu-title">—</p>
+              <p class="menu-meta" id="home-menu-meta">—</p>
+            </div>
+          </div>
+          <ul class="steps" id="home-steps"></ul>
+          <p class="section-note" id="home-menu-note"></p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">今日のステータス</p>
+          <div class="btn-row" id="home-status"></div>
+          <p class="inline-note" id="home-status-note">一部でも実施できた日は「一部だけ実施」で記録します。実施日として数えます。</p>
+          <details class="group" style="margin-top: 10px">
+            <summary>メモ・疲労度・痛みを記録する</summary>
+            <div class="group-body">
+              <div class="field">
+                <label for="home-fatigue">疲労度（1:軽い 〜 5:重い）</label>
+                <select id="home-fatigue">
+                  <option value="">未入力</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="home-pain">痛み</label>
+                <select id="home-pain">
+                  <option value="none">なし</option>
+                  <option value="back">腰</option>
+                  <option value="knee">膝</option>
+                  <option value="shoulder">肩</option>
+                  <option value="elbow">肘</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="home-memo">メモ</label>
+                <textarea id="home-memo" placeholder="良かった感覚・気づき"></textarea>
+              </div>
+              <button class="btn-primary" id="home-memo-save">メモを保存</button>
+            </div>
+          </details>
+        </section>
+
+        <section class="card">
+          <p class="card-title">今週の重点テーマ</p>
+          <div id="home-advice"></div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">直近ラウンド</p>
+          <div id="home-last-round"></div>
+        </section>
+      </div>
+
+      <!-- ================= 記録（カレンダー） ================= -->
+      <div class="view" id="view-calendar" hidden>
+        <section class="card">
+          <div class="cal-nav">
+            <button id="cal-prev" aria-label="前の月">‹</button>
+            <span class="cal-month" id="cal-month">—</span>
+            <button id="cal-next" aria-label="次の月">›</button>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="legend">
+            <span><b>◎</b> 完了</span>
+            <span><b>△</b> 一部</span>
+            <span><b>休</b> 休養</span>
+            <span><b>×</b> 未実施</span>
+            <span>枠なし＝記録なし</span>
+          </div>
+          <p class="section-note">過去日をタップすると記録を修正できます。未来日は入力できません。</p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">この月の集計</p>
+          <div class="stat-grid">
+            <div class="stat">
+              <span class="stat-value" id="cal-done">0</span>
+              <span class="stat-label">実施日</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="cal-missed">0</span>
+              <span class="stat-label">未実施日</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value accent" id="cal-rate">—</span>
+              <span class="stat-label">達成率</span>
+            </div>
+          </div>
+          <p class="section-note">月曜（完全休養）は達成率の分母に含めません。</p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">プロジェクト設定</p>
+          <div class="field">
+            <label for="set-start">プロジェクト開始日</label>
+            <input type="date" id="set-start" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="set-target">目標スコア</label>
+              <input type="number" id="set-target" inputmode="numeric" min="60" max="120" />
+            </div>
+            <div class="field">
+              <label for="set-first">第1段階の平均</label>
+              <input type="number" id="set-first" inputmode="numeric" min="60" max="120" />
+            </div>
+          </div>
+          <button class="btn-primary" id="set-save">設定を保存</button>
+        </section>
+      </div>
+
+      <!-- ================= 練習 ================= -->
+      <div class="view" id="view-practice" hidden>
+        <section class="card">
+          <p class="card-title">打ちっぱなし記録</p>
+          <div class="field">
+            <label for="rng-date">日付</label>
+            <input type="date" id="rng-date" />
+          </div>
+          <p class="section-note" id="rng-menu-note"></p>
+          <details class="group" open>
+            <summary>7番アイアン（基準20球）</summary>
+            <div class="group-body" id="rng-seven"></div>
+          </details>
+          <details class="group">
+            <summary>ドライバー（10球・次打可能率）</summary>
+            <div class="group-body" id="rng-driver"></div>
+          </details>
+          <details class="group">
+            <summary>仮想グリーン攻略（10球）</summary>
+            <div class="group-body" id="rng-green"></div>
+          </details>
+          <div class="field">
+            <label for="rng-cue">今日効いたスイングの合図</label>
+            <input type="text" id="rng-cue" placeholder="例：切り返しで右へ押し込む" />
+          </div>
+          <button class="btn-primary" id="rng-save">この日の練習を保存</button>
+          <p class="inline-note" id="rng-saved-note"></p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">日曜の80球メニュー</p>
+          <ul class="steps" id="sunday-drill"></ul>
+        </section>
+
+        <section class="card">
+          <p class="card-title">番手別キャリー</p>
+          <div class="carry-row carry-head">
+            <span>番手</span><span style="text-align: right">基準(yd)</span><span style="text-align: right">安全(yd)</span>
+          </div>
+          <div id="carry-table"></div>
+          <button class="btn-primary" id="carry-save" style="margin-top: 10px">キャリーを保存</button>
+          <p class="section-note">
+            番手選択は「基準」ではなく「安全」で決めると手前のミスが減ります。7Iは実測135〜140ydを前提にしています。
+          </p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">直近4回の練習サマリ</p>
+          <div id="range-summary"></div>
+        </section>
+      </div>
+
+      <!-- ================= スコア ================= -->
+      <div class="view" id="view-score" hidden>
+        <section class="card">
+          <p class="card-title">スコアを登録</p>
+          <details class="group" id="score-form-group">
+            <summary id="score-form-summary">＋ 新しいラウンドを登録する</summary>
+            <div class="group-body">
+              <input type="hidden" id="sc-id" />
+              <div class="field">
+                <label for="sc-date">日付 <span style="color: var(--lime)">必須</span></label>
+                <input type="date" id="sc-date" />
+              </div>
+              <div class="field">
+                <label for="sc-course">ゴルフ場 <span style="color: var(--lime)">必須</span></label>
+                <input type="text" id="sc-course" list="course-list" placeholder="例：取手国際ゴルフ倶楽部" />
+                <datalist id="course-list"></datalist>
+              </div>
+              <div class="field">
+                <label for="sc-tee">使用ティー</label>
+                <select id="sc-tee">
+                  <option value="レギュラー">レギュラー</option>
+                  <option value="フロント">フロント</option>
+                  <option value="バック">バック</option>
+                  <option value="レディース">レディース</option>
+                </select>
+              </div>
+              <div class="field-row-3">
+                <div class="field">
+                  <label for="sc-out">OUT</label>
+                  <input type="number" id="sc-out" inputmode="numeric" min="25" max="80" />
+                </div>
+                <div class="field">
+                  <label for="sc-in">IN</label>
+                  <input type="number" id="sc-in" inputmode="numeric" min="25" max="80" />
+                </div>
+                <div class="field">
+                  <label for="sc-total">合計 <span style="color: var(--lime)">必須</span></label>
+                  <input type="number" id="sc-total" inputmode="numeric" min="50" max="160" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="sc-putts">パット数</label>
+                  <input type="number" id="sc-putts" inputmode="numeric" min="10" max="60" />
+                </div>
+                <div class="field">
+                  <label for="sc-gir">パーオン数（/18）</label>
+                  <input type="number" id="sc-gir" inputmode="numeric" min="0" max="18" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="sc-bogey">ボギーオン以内（/18）</label>
+                  <input type="number" id="sc-bogey" inputmode="numeric" min="0" max="18" />
+                </div>
+                <div class="field">
+                  <label for="sc-pen">OB・1ペナ数</label>
+                  <input type="number" id="sc-pen" inputmode="numeric" min="0" max="20" />
+                </div>
+              </div>
+
+              <details class="group">
+                <summary>パット・グリーン周りの内訳</summary>
+                <div class="group-body">
+                  <div class="field-row">
+                    <div class="field">
+                      <label for="sc-3putt">3パット数</label>
+                      <input type="number" id="sc-3putt" inputmode="numeric" min="0" max="18" />
+                    </div>
+                    <div class="field">
+                      <label for="sc-3putt-gir">パーオン後の3パット</label>
+                      <input type="number" id="sc-3putt-gir" inputmode="numeric" min="0" max="18" />
+                    </div>
+                  </div>
+                  <div class="field-row">
+                    <div class="field">
+                      <label for="sc-shortside">ショートサイドへ外した回数</label>
+                      <input type="number" id="sc-shortside" inputmode="numeric" min="0" max="18" />
+                    </div>
+                    <div class="field">
+                      <label for="sc-carryshort">キャリー不足回数</label>
+                      <input type="number" id="sc-carryshort" inputmode="numeric" min="0" max="18" />
+                    </div>
+                  </div>
+                  <div class="field-row">
+                    <div class="field">
+                      <label for="sc-strategy">判断ミス回数</label>
+                      <input type="number" id="sc-strategy" inputmode="numeric" min="0" max="18" />
+                    </div>
+                    <div class="field">
+                      <label for="sc-triple">トリプル以上のホール数</label>
+                      <input type="number" id="sc-triple" inputmode="numeric" min="0" max="18" />
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <details class="group">
+                <summary>感覚と次回の課題</summary>
+                <div class="group-body">
+                  <div class="field">
+                    <label for="sc-feel">今日もっとも良かった感覚</label>
+                    <textarea id="sc-feel" placeholder="例：7Iでハンドファーストのまま打てた"></textarea>
+                  </div>
+                  <div class="field">
+                    <label for="sc-next">次回の課題</label>
+                    <textarea id="sc-next" placeholder="例：10m以上のファーストパットを1mに寄せる"></textarea>
+                  </div>
+                </div>
+              </details>
+
+              <div class="btn-row">
+                <button class="btn-ghost" id="sc-cancel">クリア</button>
+                <button class="btn-primary" id="sc-save">保存する</button>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="card">
+          <p class="card-title">
+            <span>ラウンド一覧</span>
+            <span class="chip" id="score-count">0件</span>
+          </p>
+          <div id="score-list"></div>
+        </section>
+      </div>
+
+      <!-- ================= 分析 ================= -->
+      <div class="view" id="view-analysis" hidden>
+        <section class="card">
+          <p class="card-title">スコア</p>
+          <div class="kpi-grid" id="an-score-kpi"></div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">スコア推移</p>
+          <div id="chart-score"></div>
+          <div class="chart-legend">
+            <span><i style="background: #c8f542"></i>スコア</span>
+            <span><i style="background: #59c2f5"></i>3ラウンド移動平均</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">グリーンとパット</p>
+          <div class="kpi-grid" id="an-green-kpi"></div>
+          <p class="section-note">
+            パット数の増加は、パーオンが増えてロングパットが残った結果でも起こります。パット数だけで良し悪しを判断しません。
+          </p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">パーオン率推移</p>
+          <div id="chart-gir"></div>
+          <div class="chart-legend">
+            <span><i style="background: #c8f542"></i>パーオン率(%)</span>
+            <span><i style="background: #59c2f5"></i>3ラウンド移動平均</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">ミスの内訳（1ラウンド平均）</p>
+          <div class="kpi-grid" id="an-miss-kpi"></div>
+          <p class="section-note">
+            楽天GORAでFWキープ率0%が続く箇所とOBがほぼ0の箇所は未入力の可能性があるため、ペナルティは参考値として扱います。
+          </p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">練習</p>
+          <div class="kpi-grid" id="an-practice-kpi"></div>
+          <div id="an-practice-score"></div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">次週の重点</p>
+          <div id="an-advice"></div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">データ管理</p>
+          <p class="section-note" style="margin-top: 0">
+            入力データはこの端末のブラウザ内だけに保存され、外部へは送信されません。機種変更やブラウザ履歴の削除で消えるため、時々バックアップを取ってください。
+          </p>
+          <div class="btn-row" style="margin-top: 10px">
+            <button id="data-export">JSONを書き出す</button>
+            <button id="data-import-btn">JSONを読み込む</button>
+          </div>
+          <input type="file" id="data-import" accept="application/json,.json" hidden />
+          <hr class="sep" />
+          <button class="btn-danger btn-small" id="data-reset">この端末の入力データを消去する</button>
+        </section>
+      </div>
+    </main>
+
+    <nav class="tabbar" id="tabbar" aria-label="メインナビゲーション">
+      <button class="tab" data-view="home" aria-current="page">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></svg>
+        ホーム
+      </button>
+      <button class="tab" data-view="calendar">
+        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+        記録
+      </button>
+      <button class="tab" data-view="practice">
+        <svg viewBox="0 0 24 24"><path d="M6 21c2-6 6-10 12-13" /><circle cx="17" cy="6" r="3" /><path d="M4 21h8" /></svg>
+        練習
+      </button>
+      <button class="tab" data-view="score">
+        <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg>
+        スコア
+      </button>
+      <button class="tab" data-view="analysis">
+        <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>
+        分析
+      </button>
+    </nav>
+
+    <div class="sheet-backdrop" id="sheet-backdrop"></div>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <h2 id="sheet-title">日付</h2>
+      <div class="btn-row" id="sheet-status"></div>
+      <div class="field" style="margin-top: 10px">
+        <label for="sheet-memo">メモ</label>
+        <textarea id="sheet-memo"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn-ghost" id="sheet-clear">記録を消す</button>
+        <button class="btn-primary" id="sheet-close">閉じる</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="./js/app.js"></script>
+    <script>
+      // オフラインでも起動できるようにする（PWA）
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>
