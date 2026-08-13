@@ -370,6 +370,121 @@ button:active {
   color: #d6e2ec;
 }
 
+.advice .action-line {
+  margin-top: 6px;
+  color: var(--lime);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.watch {
+  border-left: 3px solid var(--partial);
+  background: rgba(246, 196, 69, 0.08);
+  border-radius: 0 10px 10px 0;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.watch h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.watch p {
+  margin: 0;
+  font-size: 13px;
+  color: #d6e2ec;
+}
+
+/* ---------- コース・予約 ---------- */
+.course-row {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.course-row:last-child {
+  border-bottom: none;
+}
+
+.course-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.course-name {
+  font-size: 15px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.chip.warn {
+  border-color: var(--partial);
+  color: var(--partial);
+}
+
+.booking-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.booking-days {
+  flex: 0 0 auto;
+  background: var(--lime);
+  color: #10261a;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.plan-change {
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.plan-head {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plan-change .steps {
+  margin: 8px 0 10px;
+}
+
+.plan-change .step {
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.data-request {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.data-request .step {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-height: 40px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.data-request.collected {
+  border-color: var(--lime-dark);
+}
+
 /* ---------- カレンダー ---------- */
 .cal-nav {
   display: flex;

@@ -19,6 +19,33 @@ export function menuForWeekday(w) {
   return WEEKLY_MENU[w];
 }
 
+/**
+ * 診断から適用した変更を反映したメニューを返す。
+ * 曜日の種別（rest/range など）は変えない。休養日の扱いを壊さないため。
+ * @param {number} w 曜日番号
+ * @param {object} overrides {曜日番号: {title, minutes, purpose, steps}}
+ */
+export function effectiveMenu(w, overrides = {}) {
+  const base = WEEKLY_MENU[w];
+  const override = overrides?.[w] || overrides?.[String(w)];
+  if (!override) return { ...base, customized: false };
+  return {
+    ...base,
+    title: override.title || base.title,
+    minutes: override.minutes ?? base.minutes,
+    minutesLabel: override.minutes != null ? `${override.minutes}分` : base.minutesLabel,
+    purpose: override.purpose || base.purpose,
+    customized: true,
+  };
+}
+
+/** その曜日の実施項目（変更が適用されていればそちらを使う） */
+export function stepsForWeekday(w, overrides = {}) {
+  const override = overrides?.[w] || overrides?.[String(w)];
+  if (override?.steps?.length) return override.steps;
+  return MENU_STEPS[WEEKLY_MENU[w].type] || [];
+}
+
 export function isRestWeekday(w) {
   return REST_WEEKDAYS.includes(w);
 }

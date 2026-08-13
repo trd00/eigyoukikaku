@@ -12,29 +12,42 @@ import {
   weekday,
   WEEKDAY_LABELS,
 } from './date.js';
-import { MENU_STEPS, STATUS_LABELS, STATUS_MARKS, STRENGTH_NOTE, SUNDAY_DRILL, isRestWeekday, menuForWeekday } from './menu.js';
+import {
+  STATUS_LABELS,
+  STATUS_MARKS,
+  STRENGTH_NOTE,
+  SUNDAY_DRILL,
+  effectiveMenu,
+  isRestWeekday,
+  menuForWeekday,
+  stepsForWeekday,
+} from './menu.js';
 import {
   girSeries,
   movingAverage,
   practiceStats,
   rangeSessionStats,
   recentPracticeRate,
+  round1,
   roundStats,
   scoreSeries,
   sortByDateAsc,
   sortByDateDesc,
 } from './stats.js';
-import { buildAdvice, weeklyFocus } from './advice.js';
+import { DATA_REQUESTS, analyzeBooking, buildDiagnosis, differential } from './diagnose.js';
+import { courseById } from './courses.js';
 import { lineChart, scatterChart } from './chart.js';
 import {
   allRounds,
   canPersist,
+  courseList,
   dailyList,
   defaultState,
   exportJSON,
   importJSON,
   loadState,
   newId,
+  nextBooking,
   rangeList,
   saveState,
 } from './store.js';
@@ -173,14 +186,18 @@ function renderHome() {
   $('#home-rate').textContent = stats.achievementRate === null ? '—' : `${stats.achievementRate}%`;
 
   const w = weekday(today);
-  const menu = menuForWeekday(w);
+  const menu = effectiveMenu(w, state.planOverrides);
   $('#home-weekday').textContent = WEEKDAY_LABELS[w];
   $('#home-today-label').textContent = `今日のメニュー（${formatShort(today)}）`;
   $('#home-menu-title').textContent = menu.title;
   $('#home-menu-meta').textContent = `${menu.minutesLabel}／${menu.purpose}`;
-  $('#home-menu-note').textContent = menu.type === 'strength' ? STRENGTH_NOTE : isRestWeekday(w) ? '今日は完全休養日です。達成率の分母には入りません。' : '';
+  const notes = [];
+  if (menu.customized) notes.push('※ 診断からの変更を適用中');
+  if (menu.type === 'strength') notes.push(STRENGTH_NOTE);
+  if (isRestWeekday(w)) notes.push('今日は完全休養日です。達成率の分母には入りません。');
+  $('#home-menu-note').textContent = notes.join(' ');
 
-  renderSteps(menu.type);
+  renderSteps(w);
   renderStatusButtons();
 
   const record = state.daily[today];
@@ -188,14 +205,16 @@ function renderHome() {
   $('#home-pain').value = record?.pain || 'none';
   $('#home-memo').value = record?.memo || '';
 
+  renderHomeBooking();
   renderHomeAdvice();
   renderLastRound();
 }
 
-function renderSteps(menuType) {
+function renderSteps(w) {
   const list = $('#home-steps');
   clear(list);
-  const steps = MENU_STEPS[menuType] || [];
+  const steps = stepsForWeekday(w, state.planOverrides);
+  const menuType = menuForWeekday(w).type;
   const record = state.daily[today];
   const checked = record?.steps || [];
 
@@ -254,30 +273,115 @@ function setStatus(date, status) {
   if (sheetDate) renderSheet();
 }
 
-function adviceInput() {
-  const rounds = allRounds(state);
-  const stats = roundStats(rounds);
-  const latestRound = sortByDateAsc(rounds).at(-1) || null;
-  const practiceRate = recentPracticeRate({
-    startDate: state.settings.startDate,
-    records: dailyList(state),
-    today,
-    days: 28,
-  });
-  return { stats, latestRound, practiceRate, rangeStats: rangeSessionStats(rangeList(state)) };
+/** 診断エンジンへの入力をまとめる */
+function diagnosisInput() {
+  return {
+    rounds: allRounds(state),
+    courses: courseList(state),
+    practice: practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today }),
+    rangeStats: rangeSessionStats(rangeList(state)),
+    settings: state.settings,
+  };
 }
 
-function adviceNode(message) {
-  return el('div', { class: `advice ${message.tone}` }, [
-    el('h3', { text: message.title }),
-    el('p', { text: message.body }),
+function currentDiagnosis() {
+  return buildDiagnosis(diagnosisInput());
+}
+
+const LEVEL_LABEL = {
+  baseline: '現在地',
+  improve: '改善点',
+  keep: '維持',
+  watch: '観察',
+};
+
+function findingNode(finding, { compact = false } = {}) {
+  const level = LEVEL_LABEL[finding.level] || '';
+  const label = !level || level === finding.area ? finding.area : `${level}／${finding.area}`;
+  const node = el('div', { class: `advice ${finding.level === 'improve' ? 'focus' : 'good'}` }, [
+    el('h3', {}, [el('span', { class: 'chip', text: label })]),
+    el('p', { text: finding.fact }),
   ]);
+  if (!compact) node.appendChild(el('p', { text: finding.reading, style: 'margin-top:6px' }));
+  if (finding.action) {
+    node.appendChild(el('p', { class: 'action-line', text: `→ ${finding.action}` }));
+  }
+  return node;
 }
 
 function renderHomeAdvice() {
   const wrap = $('#home-advice');
   clear(wrap);
-  wrap.appendChild(adviceNode(weeklyFocus(adviceInput())));
+  const { findings } = currentDiagnosis();
+  const improve = findings.filter((f) => f.level === 'improve').slice(0, 2);
+  const list = improve.length ? improve : findings.slice(0, 1);
+  if (!list.length) {
+    wrap.appendChild(el('p', { class: 'empty', text: 'ラウンドを登録すると診断を表示します' }));
+    return;
+  }
+  for (const finding of list) wrap.appendChild(findingNode(finding, { compact: true }));
+  wrap.appendChild(
+    el('button', {
+      class: 'btn-ghost btn-small',
+      style: 'width:100%;margin-top:8px',
+      text: '分析の全文を見る',
+      onclick: () => {
+        location.hash = 'analysis';
+      },
+    })
+  );
+}
+
+function renderHomeBooking() {
+  const wrap = $('#home-booking');
+  clear(wrap);
+  const booking = nextBooking(state, today);
+  if (!booking) {
+    wrap.appendChild(el('p', { class: 'empty', text: '予約は登録されていません' }));
+    wrap.appendChild(
+      el('button', {
+        class: 'btn-ghost btn-small',
+        style: 'width:100%',
+        text: 'スコア画面で予約を登録する',
+        onclick: () => {
+          location.hash = 'score';
+        },
+      })
+    );
+    return;
+  }
+
+  const analysis = analyzeBooking({
+    booking,
+    rounds: allRounds(state),
+    courses: courseList(state),
+    settings: state.settings,
+  });
+  const days = diffDays(booking.date, today);
+  wrap.appendChild(
+    el('div', { class: 'booking-head' }, [
+      el('div', {}, [
+        el('p', { class: 'score-course', text: booking.courseName }),
+        el('p', { class: 'score-date', text: `${formatLong(booking.date)}／${booking.tee || '—'}` }),
+      ]),
+      el('span', { class: 'booking-days' }, [
+        el('b', { text: days === 0 ? '本日' : `あと${days}日` }),
+      ]),
+    ])
+  );
+
+  if (analysis?.targetRange) {
+    wrap.appendChild(
+      el('p', {
+        class: 'chip',
+        style: 'display:inline-block;margin-top:8px',
+        text: `想定スコア ${analysis.targetRange[0]}〜${analysis.targetRange[1]}`,
+      })
+    );
+  }
+  for (const note of analysis?.notes || []) {
+    wrap.appendChild(el('p', { class: 'section-note', text: note }));
+  }
 }
 
 function renderLastRound() {
@@ -576,7 +680,7 @@ function saveCarry() {
 
 const SCORE_FIELDS = {
   date: '#sc-date',
-  course: '#sc-course',
+  courseId: '#sc-course',
   tee: '#sc-tee',
   outScore: '#sc-out',
   inScore: '#sc-in',
@@ -599,11 +703,10 @@ function renderScore() {
   const rounds = sortByDateDesc(allRounds(state));
   $('#score-count').textContent = `${rounds.length}件`;
 
-  const datalist = $('#course-list');
-  clear(datalist);
-  for (const course of [...new Set(rounds.map((r) => r.course))]) {
-    datalist.appendChild(el('option', { value: course }));
-  }
+  fillCourseSelect($('#sc-course'), $('#sc-course').value);
+  updateCourseNote();
+  renderBookingForm();
+  renderCourseMaster();
 
   if (!$('#sc-date').value) $('#sc-date').value = today;
   $('#sc-date').max = today;
@@ -628,6 +731,9 @@ function scoreCard(round, { best = null, compact = false } = {}) {
     chip('パット', round.putts),
     chip('パーオン', `${round.greensInRegulation}/18 (${girPct}%)`),
   ];
+  const course = courseById(courseList(state), round.courseId);
+  const diff = differential(round.totalScore, course?.courseRate ?? null, course?.slopeRating ?? null);
+  if (diff !== null) chips.push(chip('対CR', `+${round1(round.totalScore - course.courseRate)}／D ${diff}`));
   if (!compact) {
     chips.push(chip('ボギーオン以内', `${round.bogeyOn}/18`));
     if (round.source === 'seed') chips.push(el('span', { class: 'chip seed', text: '初期データ' }));
@@ -687,6 +793,196 @@ function scoreCard(round, { best = null, compact = false } = {}) {
   return card;
 }
 
+// ---------------------------------------------------------------------------
+// ゴルフ場マスタ・予約
+// ---------------------------------------------------------------------------
+
+function fillCourseSelect(select, selected) {
+  clear(select);
+  select.appendChild(el('option', { value: '', text: '選択してください' }));
+  for (const course of courseList(state)) {
+    const rate = course.courseRate != null ? `CR ${course.courseRate}` : 'CR未登録';
+    select.appendChild(
+      el('option', { value: course.id, text: `${course.name}（${rate}${course.verified ? '' : '・要確認'}）` })
+    );
+  }
+  select.appendChild(el('option', { value: '__new', text: '＋ 新しいゴルフ場を登録する' }));
+  if (selected) select.value = selected;
+}
+
+function updateCourseNote() {
+  const course = courseById(courseList(state), $('#sc-course').value);
+  const note = $('#sc-course-note');
+  if (!course) {
+    note.textContent = '';
+    return;
+  }
+  note.textContent = `パー${course.par}／コースレート ${course.courseRate ?? '—'}／スロープ ${
+    course.slopeRating ?? '—'
+  }${course.verified ? '' : '（要確認：仮の値）'}`;
+}
+
+function renderCourseMaster() {
+  const wrap = $('#course-list-view');
+  clear(wrap);
+  const courses = courseList(state);
+  if (!courses.length) {
+    wrap.appendChild(el('p', { class: 'empty', text: 'ゴルフ場が登録されていません' }));
+    return;
+  }
+  const stats = currentDiagnosis().courseStats;
+  for (const course of courses) {
+    const played = stats.find((s) => s.courseId === course.id || s.name === course.name);
+    const chips = [
+      chip('パー', course.par ?? '—'),
+      chip('CR', course.courseRate ?? '—'),
+      chip('スロープ', course.slopeRating ?? '—'),
+    ];
+    if (played) chips.push(chip('平均', played.average));
+    if (!course.verified) chips.push(el('span', { class: 'chip warn', text: '要確認' }));
+
+    wrap.appendChild(
+      el('div', { class: 'course-row' }, [
+        el('div', { class: 'course-row-head' }, [
+          el('span', { class: 'course-name', text: course.name }),
+          el('button', {
+            class: 'btn-ghost btn-small',
+            text: '編集',
+            onclick: () => editCourse(course),
+          }),
+        ]),
+        el('div', { class: 'score-chips' }, chips),
+      ])
+    );
+  }
+}
+
+function editCourse(course) {
+  $('#co-id').value = course.id;
+  $('#co-name').value = course.name;
+  $('#co-tee').value = course.tee || 'レギュラー';
+  $('#co-par').value = course.par ?? '';
+  $('#co-rate').value = course.courseRate ?? '';
+  $('#co-slope').value = course.slopeRating ?? '';
+  $('#co-yards').value = course.yards ?? '';
+  $('#co-verified').checked = !!course.verified;
+  $('#co-memo').value = course.memo || '';
+  $('#course-form-group').open = true;
+  $('#course-form-summary').textContent = `${course.name} を編集`;
+  $('#course-form-group').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function clearCourseForm() {
+  for (const sel of ['#co-id', '#co-name', '#co-par', '#co-rate', '#co-slope', '#co-yards', '#co-memo']) {
+    $(sel).value = '';
+  }
+  $('#co-tee').value = 'レギュラー';
+  $('#co-verified').checked = false;
+  $('#course-form-summary').textContent = '＋ ゴルフ場を追加する';
+}
+
+function saveCourse() {
+  const name = $('#co-name').value.trim();
+  if (!name) return toast('ゴルフ場名を入力してください', true);
+
+  const record = {
+    id: $('#co-id').value || newId('course'),
+    name,
+    tee: $('#co-tee').value,
+    par: $('#co-par').value === '' ? 72 : num($('#co-par').value, 72),
+    courseRate: $('#co-rate').value === '' ? null : Number($('#co-rate').value),
+    slopeRating: $('#co-slope').value === '' ? null : num($('#co-slope').value, null),
+    yards: $('#co-yards').value === '' ? null : num($('#co-yards').value, null),
+    verified: $('#co-verified').checked,
+    memo: $('#co-memo').value.trim(),
+  };
+
+  const index = state.courses.findIndex((c) => c.id === record.id);
+  if (index >= 0) state.courses[index] = { ...state.courses[index], ...record };
+  else state.courses.push(record);
+
+  persist('ゴルフ場を保存しました');
+  clearCourseForm();
+  $('#course-form-group').open = false;
+  renderScore();
+}
+
+function renderBookingForm() {
+  const select = $('#bk-course');
+  const booking = nextBooking(state, today);
+  fillCourseSelect(select, booking?.courseId || select.value);
+  $('#bk-date').min = today;
+  if (booking) {
+    $('#bk-date').value = booking.date;
+    $('#bk-tee').value = booking.tee || 'レギュラー';
+  }
+
+  const wrap = $('#bk-analysis');
+  clear(wrap);
+  if (!booking) return;
+
+  const analysis = analyzeBooking({
+    booking,
+    rounds: allRounds(state),
+    courses: courseList(state),
+    settings: state.settings,
+  });
+  wrap.appendChild(el('hr', { class: 'sep' }));
+  wrap.appendChild(
+    el('p', { class: 'card-title', text: `${booking.courseName} の事前分析`, style: 'margin-bottom:6px' })
+  );
+  if (analysis.targetRange) {
+    wrap.appendChild(
+      el('div', { class: 'kpi-grid' }, [
+        kpi('想定スコア', `${analysis.targetRange[0]}〜${analysis.targetRange[1]}`, '推定ハンディ基準'),
+        kpi('推定ハンディ', fmt(analysis.handicap), '直近の成績から'),
+        kpi('このコース平均', analysis.history ? String(analysis.history.average) : '—', analysis.history ? `${analysis.history.count}回` : '記録なし'),
+      ])
+    );
+  }
+  for (const note of analysis.notes) wrap.appendChild(el('p', { class: 'section-note', text: note }));
+  if (analysis.course?.memo) {
+    wrap.appendChild(el('p', { class: 'section-note', text: `コースメモ：${analysis.course.memo}` }));
+  }
+  wrap.appendChild(
+    el('button', {
+      class: 'btn-small',
+      style: 'width:100%;margin-top:10px',
+      text: 'このラウンドの結果を入力する',
+      onclick: () => {
+        clearScoreForm();
+        $('#sc-date').value = booking.date <= today ? booking.date : today;
+        fillCourseSelect($('#sc-course'), booking.courseId);
+        $('#sc-tee').value = booking.tee || 'レギュラー';
+        updateCourseNote();
+        $('#score-form-group').open = true;
+        $('#score-form-group').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+    })
+  );
+}
+
+function saveBooking() {
+  const date = $('#bk-date').value;
+  const courseId = $('#bk-course').value;
+  if (!date) return toast('日付を入力してください', true);
+  if (!courseId || courseId === '__new') return toast('ゴルフ場を選択してください', true);
+  const course = courseById(courseList(state), courseId);
+
+  const booking = {
+    id: newId('bk'),
+    date,
+    courseId,
+    courseName: course?.name || '',
+    tee: $('#bk-tee').value,
+  };
+  // 予定は1件だけ持つ（過去の予定は結果入力後に不要になるため置き換える）
+  state.bookings = [...(state.bookings || []).filter((b) => b.date < today), booking];
+  persist('予約を保存しました');
+  renderScore();
+  renderHome();
+}
+
 function chip(label, value) {
   return el('span', { class: 'chip' }, [document.createTextNode(`${label} `), el('b', { text: String(value) })]);
 }
@@ -696,11 +992,13 @@ function kv(label, value) {
 }
 
 function editRound(round) {
+  fillCourseSelect($('#sc-course'), '');
   for (const [key, sel] of Object.entries(SCORE_FIELDS)) {
     const node = $(sel);
     const value = round[key];
     node.value = value === null || value === undefined ? '' : value;
   }
+  updateCourseNote();
   $('#sc-id').value = round.id;
   $('#score-form-group').open = true;
   $('#score-form-summary').textContent = 'ラウンドを編集する';
@@ -712,6 +1010,7 @@ function clearScoreForm() {
   $('#sc-id').value = '';
   $('#sc-date').value = today;
   $('#sc-tee').value = 'レギュラー';
+  $('#sc-course-note').textContent = '';
   $('#score-form-summary').textContent = '＋ 新しいラウンドを登録する';
 }
 
@@ -729,7 +1028,9 @@ function deleteRound(round) {
 
 function saveRound() {
   const date = $('#sc-date').value;
-  const course = $('#sc-course').value.trim();
+  const courseId = $('#sc-course').value;
+  const courseRecord = courseById(courseList(state), courseId);
+  const course = courseRecord?.name || '';
   const out = $('#sc-out').value === '' ? null : num($('#sc-out').value);
   const inn = $('#sc-in').value === '' ? null : num($('#sc-in').value);
   let total = $('#sc-total').value === '' ? null : num($('#sc-total').value);
@@ -737,7 +1038,7 @@ function saveRound() {
 
   if (!date) return toast('日付を入力してください', true);
   if (diffDays(date, today) > 0) return toast('未来の日付は登録できません', true);
-  if (!course) return toast('ゴルフ場を入力してください', true);
+  if (!course) return toast('ゴルフ場を選択してください', true);
   if (!total) return toast('合計スコアを入力してください', true);
 
   const gir = clamp(num($('#sc-gir').value), 0, 18);
@@ -747,6 +1048,7 @@ function saveRound() {
     id: $('#sc-id').value || newId('round'),
     date,
     course,
+    courseId: courseId || null,
     tee: $('#sc-tee').value,
     outScore: out,
     inScore: inn,
@@ -781,6 +1083,9 @@ function saveRound() {
     state.rounds[sameDay] = record;
   } else state.rounds.push(record);
 
+  // 予約していたラウンドの結果を入れたら、その予約は消化済みにする
+  state.bookings = (state.bookings || []).filter((b) => !(b.date === date && b.courseId === courseId));
+
   persist('スコアを保存しました');
   clearScoreForm();
   $('#score-form-group').open = false;
@@ -808,6 +1113,8 @@ function renderAnalysis() {
   const rounds = allRounds(state);
   const stats = roundStats(rounds);
   const practice = practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today });
+
+  renderDiagnosis();
 
   const scoreKpi = $('#an-score-kpi');
   clear(scoreKpi);
@@ -867,10 +1174,175 @@ function renderAnalysis() {
   ].forEach((node) => practiceKpi.appendChild(node));
 
   renderPracticeScoreRelation();
+}
 
-  const adviceWrap = $('#an-advice');
-  clear(adviceWrap);
-  for (const message of buildAdvice(adviceInput())) adviceWrap.appendChild(adviceNode(message));
+/** コースレート基準の現在地・診断・変更案・必要データ */
+function renderDiagnosis() {
+  const diag = currentDiagnosis();
+  const s = diag.sample;
+
+  const ratingKpi = $('#an-rating-kpi');
+  clear(ratingKpi);
+  [
+    kpi('直近5R平均', fmt(s.avgScore5), `全期間 ${fmt(s.avgScoreAll)}`),
+    kpi('ディファレンシャル', fmt(s.avgDiff5), s.bestDiff5 !== null ? `ベスト ${s.bestDiff5}` : 'コースレート未登録'),
+    kpi('推定ハンディ', fmt(s.handicap), '参考値'),
+    kpi('スコアのレンジ', s.spread != null ? `${s.spread}打` : '—', '直近5R'),
+    kpi('パーオン率', fmt(s.girRate5, '%'), '直近5R'),
+    kpi('前半→後半', s.nineGap === null ? '—' : `${s.nineGap > 0 ? '+' : ''}${s.nineGap}打`, 'IN − OUT'),
+  ].forEach((node) => ratingKpi.appendChild(node));
+
+  $('#an-rating-note').textContent =
+    'ディファレンシャル＝（スコア − コースレート）× 113 ÷ スロープ。コース難易度を補正した数値で、小さいほど良い。推定ハンディはラウンド数が少ないほど誤差が大きい参考値。';
+
+  const findingsWrap = $('#an-findings');
+  clear(findingsWrap);
+  if (!diag.findings.length) {
+    findingsWrap.appendChild(el('p', { class: 'empty', text: 'ラウンドを登録すると診断を表示します' }));
+  }
+  for (const finding of diag.findings) findingsWrap.appendChild(findingNode(finding));
+
+  const watchWrap = $('#an-watch');
+  clear(watchWrap);
+  if (!diag.watchPoints.length) {
+    watchWrap.appendChild(el('p', { class: 'empty', text: '現時点で気になる点はありません' }));
+  }
+  for (const point of diag.watchPoints) {
+    watchWrap.appendChild(
+      el('div', { class: 'watch' }, [el('h3', { text: point.title }), el('p', { text: point.body })])
+    );
+  }
+
+  renderPlanChanges(diag.planChanges);
+  renderDataRequests(diag.dataRequests);
+  renderCourseStats(diag.courseStats);
+}
+
+function renderPlanChanges(changes) {
+  const wrap = $('#an-plan');
+  clear(wrap);
+  const applied = state.planOverrides || {};
+
+  if (!changes.length && !Object.keys(applied).length) {
+    wrap.appendChild(el('p', { class: 'empty', text: '現在のメニューを変更する理由は見つかりません' }));
+    return;
+  }
+
+  for (const change of changes) {
+    const base = menuForWeekday(change.day);
+    const isApplied = !!applied[change.day] && applied[change.day].title === change.title;
+    wrap.appendChild(
+      el('div', { class: 'plan-change' }, [
+        el('p', { class: 'plan-head', text: `${WEEKDAY_LABELS[change.day]}曜：${base.title} → ${change.title}` }),
+        el('p', { class: 'section-note', text: `理由：${change.reason}` }),
+        el('ul', { class: 'steps' }, change.steps.map((s) => el('li', {}, [el('div', { class: 'step' }, [el('span', { text: s })])]))),
+        el('button', {
+          class: isApplied ? 'btn-ghost btn-small' : 'btn-primary btn-small',
+          style: 'width:100%',
+          text: isApplied ? '適用中（元に戻す）' : 'この変更を週間メニューに適用する',
+          onclick: () => togglePlanChange(change, isApplied),
+        }),
+      ])
+    );
+  }
+
+  const appliedDays = Object.keys(applied);
+  if (appliedDays.length) {
+    wrap.appendChild(
+      el('p', {
+        class: 'section-note',
+        text: `適用中：${appliedDays.map((d) => `${WEEKDAY_LABELS[Number(d)]}曜`).join('、')}。ホーム画面の今日のメニューに反映されます。`,
+      })
+    );
+  }
+}
+
+function togglePlanChange(change, isApplied) {
+  if (isApplied) {
+    delete state.planOverrides[change.day];
+    persist('元のメニューに戻しました');
+  } else {
+    state.planOverrides[change.day] = {
+      title: change.title,
+      minutes: change.minutes,
+      purpose: change.purpose,
+      steps: change.steps,
+    };
+    persist(`${WEEKDAY_LABELS[change.day]}曜のメニューを変更しました`);
+  }
+  renderAnalysis();
+}
+
+function renderDataRequests(requests) {
+  const wrap = $('#an-data-requests');
+  clear(wrap);
+  if (!requests.length) {
+    wrap.appendChild(el('p', { class: 'empty', text: '追加で取りたいデータはありません' }));
+    return;
+  }
+  for (const request of requests) {
+    const collected = state.collectedData?.[request.key];
+    const input = el('input', { type: 'checkbox', ...(collected ? { checked: 'checked' } : {}) });
+    input.addEventListener('change', () => {
+      if (!state.collectedData) state.collectedData = {};
+      if (input.checked) state.collectedData[request.key] = today;
+      else delete state.collectedData[request.key];
+      persist(input.checked ? '取得済みにしました' : '取得済みを解除しました');
+      renderDiagnosis();
+    });
+    wrap.appendChild(
+      el('div', { class: `data-request${collected ? ' collected' : ''}` }, [
+        el('label', { class: 'step' }, [input, el('span', { text: request.title })]),
+        el('p', { class: 'section-note', text: `取り方：${request.how}` }),
+        el('p', { class: 'section-note', text: `目的：${request.why}` }),
+        collected ? el('p', { class: 'inline-note', text: `取得済み（${formatShort(collected)}）` }) : null,
+      ])
+    );
+  }
+}
+
+function renderCourseStats(stats) {
+  const wrap = $('#an-course-stats');
+  clear(wrap);
+  if (!stats.length) {
+    wrap.appendChild(el('p', { class: 'empty', text: 'ラウンド記録がありません' }));
+    return;
+  }
+  for (const entry of stats) {
+    const chips = [
+      chip('回数', `${entry.count}回`),
+      chip('平均', entry.average),
+      chip('ベスト', entry.best),
+      chip('平均パット', entry.averagePutts),
+      chip('平均パーオン', `${entry.averageGir}/18`),
+    ];
+    if (entry.averageDifferential !== null) chips.push(chip('D平均', entry.averageDifferential));
+    if (!entry.verified) chips.push(el('span', { class: 'chip warn', text: 'CR要確認' }));
+
+    const detail = [
+      `キャリー不足 ${entry.averageCarryShorts}回`,
+      `ショートサイド ${entry.averageShortSide}回`,
+      `ペナルティ ${entry.averagePenalties}回`,
+      `トリプル以上 ${entry.averageTriple}H`,
+    ].join('／');
+
+    wrap.appendChild(
+      el('div', { class: 'course-row' }, [
+        el('div', { class: 'course-row-head' }, [
+          el('span', { class: 'course-name', text: entry.name }),
+          el('span', {
+            class: 'chip',
+            text:
+              entry.latestDelta === null
+                ? `前回 ${entry.latest.totalScore}`
+                : `前回 ${entry.latest.totalScore}（${entry.latestDelta > 0 ? '+' : ''}${entry.latestDelta}）`,
+          }),
+        ]),
+        el('div', { class: 'score-chips' }, chips),
+        el('p', { class: 'section-note', text: `1ラウンド平均：${detail}` }),
+      ])
+    );
+  }
 }
 
 /** 練習実施率とスコアの関係（データ蓄積後に表示） */
@@ -1019,7 +1491,39 @@ function bindEvents() {
   };
   $('#sc-out').addEventListener('input', syncTotal);
   $('#sc-in').addEventListener('input', syncTotal);
+  $('#sc-course').addEventListener('change', (e) => {
+    if (e.target.value === '__new') {
+      e.target.value = '';
+      $('#course-form-group').open = true;
+      $('#course-form-group').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      toast('ゴルフ場を登録してから選択してください');
+    }
+    updateCourseNote();
+  });
   $('#sc-save').addEventListener('click', saveRound);
+
+  $('#co-save').addEventListener('click', saveCourse);
+  $('#co-cancel').addEventListener('click', () => {
+    clearCourseForm();
+    toast('入力をクリアしました');
+  });
+
+  $('#bk-course').addEventListener('change', (e) => {
+    if (e.target.value === '__new') {
+      e.target.value = '';
+      $('#course-form-group').open = true;
+      $('#course-form-group').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+  $('#bk-save').addEventListener('click', saveBooking);
+  $('#bk-delete').addEventListener('click', () => {
+    const booking = nextBooking(state, today);
+    if (!booking) return toast('予約はありません', true);
+    state.bookings = (state.bookings || []).filter((b) => b.id !== booking.id);
+    persist('予約を取り消しました');
+    renderScore();
+    renderHome();
+  });
   $('#sc-cancel').addEventListener('click', () => {
     clearScoreForm();
     toast('入力をクリアしました');

@@ -2,10 +2,11 @@
 // SSR/localStorage不可（プライベートモード等）でも例外で落ちないようにする（要件17）。
 
 import { SEED_CARRY, SEED_ROUNDS } from './seed.js';
+import { SEED_COURSES } from './courses.js';
 import { todayJST } from './date.js';
 
 const STORAGE_KEY = 'trdgolf.v1';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /** localStorageが使えるか（SSR・プライベートモード対策） */
 function storageAvailable() {
@@ -41,12 +42,24 @@ export function defaultState(today = todayJST()) {
     range: {},
     rounds: [],
     hiddenSeedIds: [],
+    // ゴルフ場マスタ。初期値のコースレートは仮の値（verified:false）。
+    courses: SEED_COURSES.map((c) => ({ ...c })),
+    // 予約したラウンド（次回の予定）
+    bookings: [],
+    // 診断から適用した週間メニューの変更（曜日番号 → メニュー）
+    planOverrides: {},
+    // 取得済みにした計測データ項目
+    collectedData: {},
   };
 }
 
 function migrate(raw) {
   const base = defaultState();
   if (!raw || typeof raw !== 'object') return base;
+
+  // v1（コースマスタなし）から移行しても初期コースは失わない
+  const courses = Array.isArray(raw.courses) && raw.courses.length ? raw.courses : base.courses;
+
   return {
     version: SCHEMA_VERSION,
     settings: { ...base.settings, ...(raw.settings || {}) },
@@ -55,6 +68,10 @@ function migrate(raw) {
     range: raw.range && typeof raw.range === 'object' ? raw.range : {},
     rounds: Array.isArray(raw.rounds) ? raw.rounds : [],
     hiddenSeedIds: Array.isArray(raw.hiddenSeedIds) ? raw.hiddenSeedIds : [],
+    courses,
+    bookings: Array.isArray(raw.bookings) ? raw.bookings : [],
+    planOverrides: raw.planOverrides && typeof raw.planOverrides === 'object' ? raw.planOverrides : {},
+    collectedData: raw.collectedData && typeof raw.collectedData === 'object' ? raw.collectedData : {},
   };
 }
 
@@ -98,6 +115,17 @@ export function dailyList(state) {
 
 export function rangeList(state) {
   return Object.values(state.range || {});
+}
+
+export function courseList(state) {
+  return state.courses || [];
+}
+
+/** 今日以降でもっとも近い予約（次のラウンド） */
+export function nextBooking(state, today) {
+  return (state.bookings || [])
+    .filter((b) => b.date >= today)
+    .sort((a, b) => (a.date < b.date ? -1 : 1))[0] || null;
 }
 
 /** JSONバックアップ書き出し（要件14 優先案1） */

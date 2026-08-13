@@ -7,8 +7,10 @@
 // 注意：楽天GORA側でFWキープ率0%が連続する箇所とOBがほぼ0の箇所は未入力の可能性があるため、
 // penalties は信頼できる指標として扱わない（分析画面でも注記を出す）。
 
+import { SEED_COURSES, findCourseByName } from './courses.js';
+
 /** @type {import('./types.js').RoundRecord[]} */
-export const SEED_ROUNDS = [
+const RAW_ROUNDS = [
   r('seed-01', '2025-09-28', '取手国際ゴルフ倶楽部', 'レギュラー', 47, 47, 33, 2, 11, 2, 4, 1, 3, 2, 3, 3),
   r('seed-02', '2025-10-12', '大厚木カントリークラブ', 'レギュラー', 48, 46, 32, 3, 12, 3, 3, 1, 2, 3, 2, 3),
   r('seed-03', '2025-10-26', '東名カントリークラブ', 'レギュラー', 46, 46, 34, 2, 11, 2, 4, 1, 3, 2, 3, 2),
@@ -29,6 +31,12 @@ export const SEED_ROUNDS = [
   r('seed-18', '2026-08-02', '東名カントリークラブ', 'レギュラー', 46, 46, 37, 7, 15, 2, 5, 3, 3, 2, 2, 2),
   r('seed-19', '2026-08-12', '取手国際ゴルフ倶楽部', 'レギュラー', 45, 44, 39, 6, 14, 1, 6, 2, 2, 2, 2, 1),
 ];
+
+/** ゴルフ場マスタと紐付ける（コースレート補正に使う） */
+export const SEED_ROUNDS = RAW_ROUNDS.map((round) => ({
+  ...round,
+  courseId: findCourseByName(SEED_COURSES, round.course)?.id ?? null,
+}));
 
 /**
  * seedデータもユーザー追加データと同じ型で扱う（要件17）。

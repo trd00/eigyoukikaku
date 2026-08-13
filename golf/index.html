@@ -101,8 +101,13 @@
           </details>
         </section>
 
+        <section class="card" id="home-booking-card">
+          <p class="card-title">次のラウンド</p>
+          <div id="home-booking"></div>
+        </section>
+
         <section class="card">
-          <p class="card-title">今週の重点テーマ</p>
+          <p class="card-title">今週の重点</p>
           <div id="home-advice"></div>
         </section>
 
@@ -225,6 +230,33 @@
       <!-- ================= スコア ================= -->
       <div class="view" id="view-score" hidden>
         <section class="card">
+          <p class="card-title">次のラウンドの予約</p>
+          <div class="field-row">
+            <div class="field">
+              <label for="bk-date">日付</label>
+              <input type="date" id="bk-date" />
+            </div>
+            <div class="field">
+              <label for="bk-tee">使用ティー</label>
+              <select id="bk-tee">
+                <option value="レギュラー">レギュラー</option>
+                <option value="フロント">フロント</option>
+                <option value="バック">バック</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="bk-course">ゴルフ場</label>
+            <select id="bk-course"></select>
+          </div>
+          <div class="btn-row">
+            <button class="btn-ghost" id="bk-delete">予約を取り消す</button>
+            <button class="btn-primary" id="bk-save">予約を保存</button>
+          </div>
+          <div id="bk-analysis"></div>
+        </section>
+
+        <section class="card">
           <p class="card-title">スコアを登録</p>
           <details class="group" id="score-form-group">
             <summary id="score-form-summary">＋ 新しいラウンドを登録する</summary>
@@ -236,8 +268,8 @@
               </div>
               <div class="field">
                 <label for="sc-course">ゴルフ場 <span style="color: var(--lime)">必須</span></label>
-                <input type="text" id="sc-course" list="course-list" placeholder="例：取手国際ゴルフ倶楽部" />
-                <datalist id="course-list"></datalist>
+                <select id="sc-course"></select>
+                <p class="inline-note" id="sc-course-note"></p>
               </div>
               <div class="field">
                 <label for="sc-tee">使用ティー</label>
@@ -348,58 +380,148 @@
           </p>
           <div id="score-list"></div>
         </section>
+
+        <section class="card" id="course-section">
+          <p class="card-title">ゴルフ場（コースレート）</p>
+          <p class="section-note" style="margin-top: 0">
+            コースレートとスロープを正しく入れるほど、難易度を補正した比較ができます。値はスコアカードまたは倶楽部の公式ページで確認できます。
+          </p>
+          <div id="course-list-view"></div>
+          <details class="group" id="course-form-group" style="margin-top: 10px">
+            <summary id="course-form-summary">＋ ゴルフ場を追加する</summary>
+            <div class="group-body">
+              <input type="hidden" id="co-id" />
+              <div class="field">
+                <label for="co-name">ゴルフ場名 <span style="color: var(--lime)">必須</span></label>
+                <input type="text" id="co-name" placeholder="例：取手国際ゴルフ倶楽部" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="co-tee">使用ティー</label>
+                  <select id="co-tee">
+                    <option value="レギュラー">レギュラー</option>
+                    <option value="フロント">フロント</option>
+                    <option value="バック">バック</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="co-par">パー</label>
+                  <input type="number" id="co-par" inputmode="numeric" min="60" max="80" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="co-rate">コースレート</label>
+                  <input type="number" id="co-rate" inputmode="decimal" step="0.1" min="55" max="80" />
+                </div>
+                <div class="field">
+                  <label for="co-slope">スロープレーティング</label>
+                  <input type="number" id="co-slope" inputmode="numeric" min="55" max="155" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="co-yards">全長（yd）</label>
+                <input type="number" id="co-yards" inputmode="numeric" min="3000" max="8000" />
+              </div>
+              <label class="step" style="margin-bottom: 10px">
+                <input type="checkbox" id="co-verified" />
+                <span>スコアカードで確認済み</span>
+              </label>
+              <div class="field">
+                <label for="co-memo">コースのメモ（グリーン・砲台・危険地帯）</label>
+                <textarea id="co-memo" placeholder="例：2グリーンで奥はOB。10番以降は左が池。"></textarea>
+              </div>
+              <div class="btn-row">
+                <button class="btn-ghost" id="co-cancel">クリア</button>
+                <button class="btn-primary" id="co-save">保存する</button>
+              </div>
+            </div>
+          </details>
+        </section>
       </div>
 
       <!-- ================= 分析 ================= -->
       <div class="view" id="view-analysis" hidden>
         <section class="card">
-          <p class="card-title">スコア</p>
-          <div class="kpi-grid" id="an-score-kpi"></div>
+          <p class="card-title">現在地（コースレート基準）</p>
+          <div class="kpi-grid" id="an-rating-kpi"></div>
+          <p class="section-note" id="an-rating-note"></p>
         </section>
 
         <section class="card">
-          <p class="card-title">スコア推移</p>
-          <div id="chart-score"></div>
-          <div class="chart-legend">
-            <span><i style="background: #c8f542"></i>スコア</span>
-            <span><i style="background: #59c2f5"></i>3ラウンド移動平均</span>
-          </div>
+          <p class="card-title">診断（直近5ラウンド）</p>
+          <div id="an-findings"></div>
         </section>
 
         <section class="card">
-          <p class="card-title">グリーンとパット</p>
-          <div class="kpi-grid" id="an-green-kpi"></div>
-          <p class="section-note">
-            パット数の増加は、パーオンが増えてロングパットが残った結果でも起こります。パット数だけで良し悪しを判断しません。
+          <p class="card-title">気になるポイント</p>
+          <div id="an-watch"></div>
+        </section>
+
+        <section class="card" id="an-plan-card">
+          <p class="card-title">練習プランの変更案</p>
+          <div id="an-plan"></div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">次に取りたいデータ</p>
+          <p class="section-note" style="margin-top: 0">
+            診断で判別できなかった点を確定させるための計測です。取れた項目はチェックすると、次の診断で「取得済み」として扱います。
           </p>
+          <div id="an-data-requests"></div>
         </section>
 
         <section class="card">
-          <p class="card-title">パーオン率推移</p>
-          <div id="chart-gir"></div>
-          <div class="chart-legend">
-            <span><i style="background: #c8f542"></i>パーオン率(%)</span>
-            <span><i style="background: #59c2f5"></i>3ラウンド移動平均</span>
-          </div>
+          <p class="card-title">ゴルフ場別の成績</p>
+          <div id="an-course-stats"></div>
         </section>
 
         <section class="card">
-          <p class="card-title">ミスの内訳（1ラウンド平均）</p>
-          <div class="kpi-grid" id="an-miss-kpi"></div>
-          <p class="section-note">
-            楽天GORAでFWキープ率0%が続く箇所とOBがほぼ0の箇所は未入力の可能性があるため、ペナルティは参考値として扱います。
-          </p>
-        </section>
+          <p class="card-title">数値の詳細</p>
+          <details class="group">
+            <summary>スコアと推移</summary>
+            <div class="group-body">
+              <div class="kpi-grid" id="an-score-kpi"></div>
+              <div id="chart-score"></div>
+              <div class="chart-legend">
+                <span><i style="background: #c8f542"></i>スコア</span>
+                <span><i style="background: #59c2f5"></i>3ラウンド移動平均</span>
+              </div>
+            </div>
+          </details>
 
-        <section class="card">
-          <p class="card-title">練習</p>
-          <div class="kpi-grid" id="an-practice-kpi"></div>
-          <div id="an-practice-score"></div>
-        </section>
+          <details class="group">
+            <summary>グリーンとパット</summary>
+            <div class="group-body">
+              <div class="kpi-grid" id="an-green-kpi"></div>
+              <div id="chart-gir"></div>
+              <div class="chart-legend">
+                <span><i style="background: #c8f542"></i>パーオン率(%)</span>
+                <span><i style="background: #59c2f5"></i>3ラウンド移動平均</span>
+              </div>
+              <p class="section-note">
+                パット数の増加は、パーオンが増えてロングパットが残った結果でも起こります。パット数だけで良し悪しを判断しません。
+              </p>
+            </div>
+          </details>
 
-        <section class="card">
-          <p class="card-title">次週の重点</p>
-          <div id="an-advice"></div>
+          <details class="group">
+            <summary>ミスの内訳（1ラウンド平均）</summary>
+            <div class="group-body">
+              <div class="kpi-grid" id="an-miss-kpi"></div>
+              <p class="section-note">
+                楽天GORAでFWキープ率0%が続く箇所とOBがほぼ0の箇所は未入力の可能性があるため、ペナルティは参考値として扱います。
+              </p>
+            </div>
+          </details>
+
+          <details class="group">
+            <summary>練習量との関係</summary>
+            <div class="group-body">
+              <div class="kpi-grid" id="an-practice-kpi"></div>
+              <div id="an-practice-score"></div>
+            </div>
+          </details>
         </section>
 
         <section class="card">

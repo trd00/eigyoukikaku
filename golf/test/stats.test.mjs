@@ -16,10 +16,20 @@ import {
   filterByYear,
   threePuttAfterGirRate,
   movingAverage,
+  round1,
   scoreSeries,
 } from '../js/stats.js';
 import { projectDay, diffDays, addDays, weekday, todayJST, dateRange } from '../js/date.js';
-import { buildAdvice } from '../js/advice.js';
+import { SEED_COURSES } from '../js/courses.js';
+import {
+  analyzeBooking,
+  buildDiagnosis,
+  courseStats,
+  differential,
+  estimateHandicap,
+  expectedScore,
+  withCourseContext,
+} from '../js/diagnose.js';
 
 // ---------------------------------------------------------------------------
 // 初期投入ラウンドデータ（要件9 / 受入条件15）
@@ -274,38 +284,176 @@ test('新規スコアを足すと平均・ベスト・推移が再計算され�
   assert.equal(movingAverage(scoreSeries(added), 3).length, 20);
 });
 
-test('助言：パーオン率が高くパーオン後3パットが多いとロングパットを優先', () => {
-  const stats = roundStats(recent(SEED_ROUNDS, 5));
-  const msgs = buildAdvice({
-    stats,
-    latestRound: SEED_ROUNDS.at(-1),
-    practiceRate: 90,
-    rangeStats: {},
-  });
-  assert.ok(msgs.some((m) => m.key === 'long-putt'));
+// ---------------------------------------------------------------------------
+// コースレートによる補正
+// ---------------------------------------------------------------------------
+
+test('ディファレンシャル =（スコア − コースレート）× 113 ÷ スロープ', () => {
+  assert.equal(differential(92, 71.4, 128), round1(((92 - 71.4) * 113) / 128));
+  assert.equal(differential(92, 71.4, 128), 18.2);
+  // スロープ未登録なら113として扱う
+  assert.equal(differential(90, 70.0, null), 20);
+  assert.equal(differential(90, null, 128), null);
 });
 
-test('助言：実施率50%未満なら再開しやすさを最優先で提示', () => {
-  const msgs = buildAdvice({
-    stats: roundStats(SEED_ROUNDS),
-    latestRound: null,
-    practiceRate: 20,
-    rangeStats: {},
-  });
-  assert.equal(msgs[0].key, 'practice-restart');
+test('難易度が高いコースほど同じスコアのディファレンシャルは小さい', () => {
+  const easy = differential(92, 70.8, 126);
+  const hard = differential(92, 71.8, 130);
+  assert.ok(hard < easy, '難コースの方が評価が高くなるべき');
 });
 
-test('助言：ユーザーを責める表現を含まない', () => {
-  const ng = ['サボ', 'ダメ', '怠', '悪い', '失敗です'];
-  const msgs = buildAdvice({
-    stats: roundStats(SEED_ROUNDS),
-    latestRound: SEED_ROUNDS.at(-1),
-    practiceRate: 10,
-    rangeStats: { carryShortTotal: 5, shortSideTotal: 4 },
+test('推定ハンディはラウンド数に応じた本数で計算する', () => {
+  assert.equal(estimateHandicap([20, 18, 22, 25, 19]), 18); // 5件→最小1本
+  assert.equal(estimateHandicap([20, 18]), null); // 4件以下は算出しない
+  assert.equal(estimateHandicap([20, 18, 22, 25, 19, 17, 21]), 17.5); // 7件→最小2本平均
+});
+
+test('想定スコア = コースレート + ハンディ × スロープ/113', () => {
+  assert.equal(expectedScore(71.4, 128, 18), round1(71.4 + (18 * 128) / 113));
+  assert.equal(expectedScore(null, 128, 18), null);
+});
+
+test('初期19ラウンドにコースレートが紐づく', () => {
+  const enriched = withCourseContext(SEED_ROUNDS, SEED_COURSES);
+  assert.equal(enriched.length, 19);
+  assert.ok(enriched.every((r) => r.courseRate !== null), 'コースレート未解決のラウンドがある');
+  assert.ok(enriched.every((r) => r.differential !== null));
+  assert.ok(enriched.every((r) => r.par === 72));
+});
+
+test('ゴルフ場別の成績を集計する', () => {
+  const stats = courseStats(SEED_ROUNDS, SEED_COURSES);
+  assert.equal(stats.length, 5);
+  const toride = stats.find((c) => c.name === '取手国際ゴルフ倶楽部');
+  assert.equal(toride.count, 5); // 09-28, 11-23, 01-18, 06-07, 08-12
+  assert.equal(toride.best, 89);
+  assert.equal(toride.worst, 100);
+  assert.ok(toride.averageDifferential > 0);
+  // 直近と前回の差分が出る
+  assert.equal(toride.latest.totalScore, 89);
+  assert.equal(toride.latestDelta, 89 - 92);
+});
+
+// ---------------------------------------------------------------------------
+// 診断
+// ---------------------------------------------------------------------------
+
+function diagnose(overrides = {}) {
+  return buildDiagnosis({
+    rounds: SEED_ROUNDS,
+    courses: SEED_COURSES,
+    practice: practiceStats({ startDate: '2026-08-01', records: [], today: '2026-08-13' }),
+    rangeStats: { count: 0 },
+    settings: { targetScore: 85 },
+    ...overrides,
   });
-  for (const m of msgs) {
+}
+
+test('診断：直近5ラウンドとコースレートを基準にした現在地を必ず出す', () => {
+  const d = diagnose();
+  assert.equal(d.sample.recentCount, 5);
+  assert.equal(d.sample.avgScore5, 92.6);
+  assert.ok(d.sample.avgDiff5 > 0);
+  assert.ok(d.sample.handicap !== null);
+  assert.equal(d.findings[0].key, 'baseline');
+  assert.match(d.findings[0].fact, /ディファレンシャル/);
+});
+
+test('診断：パーオン後3パットが多ければ改善点として出し、判別できない点を明示する', () => {
+  const d = diagnose();
+  const putting = d.findings.find((f) => f.key === 'three-putt-after-gir');
+  assert.ok(putting, 'パットの指摘がない');
+  assert.equal(putting.level, 'improve');
+  assert.match(putting.reading, /判別できない/);
+  assert.ok(putting.dataNeeded.includes('first-putt-distance'));
+});
+
+test('診断：改善点に対応する練習プラン変更案と計測データが出る', () => {
+  const d = diagnose();
+  const plan = d.planChanges.find((p) => p.day === 4);
+  assert.ok(plan, '木曜の変更案がない');
+  assert.ok(plan.steps.length >= 2);
+  assert.match(plan.reason, /%/);
+  assert.ok(d.dataRequests.some((r) => r.key === 'first-putt-distance'));
+  assert.ok(d.dataRequests.every((r) => r.title && r.how && r.why));
+});
+
+test('診断：コースレートが仮の値なら気になるポイントで知らせる', () => {
+  const d = diagnose();
+  assert.ok(d.watchPoints.some((w) => w.title.includes('コースレート')));
+});
+
+test('診断：ペナルティが0続きなら未入力の可能性を指摘する', () => {
+  const rounds = recent(SEED_ROUNDS, 5).map((r) => ({ ...r, penalties: 0 }));
+  const d = diagnose({ rounds });
+  assert.ok(d.watchPoints.some((w) => w.title.includes('ペナルティ0')));
+});
+
+test('診断：ラウンドが無ければ診断せず、登録を促す', () => {
+  const d = diagnose({ rounds: [] });
+  assert.equal(d.findings.length, 0);
+  assert.equal(d.watchPoints.length, 1);
+});
+
+test('診断：実施率が低い場合は分量を落とす変更案を出す', () => {
+  const d = diagnose({
+    practice: { achievementRate: 30, doneDays: 3, missedDays: 7, restDays: 2 },
+  });
+  const finding = d.findings.find((f) => f.key === 'practice-low');
+  assert.ok(finding);
+  assert.ok(d.planChanges.some((p) => p.day === 2 && p.minutes < 15));
+});
+
+test('診断：励ましも叱責も入れない（過剰な優しさ・厳しさの排除）', () => {
+  const ng = [
+    'すごい', '素晴らしい', '完璧', '最高', '天才', 'さすが', '頑張って', '大丈夫です',
+    'サボ', 'ダメ', '怠', '甘い', '言い訳', '努力不足',
+  ];
+  const d = diagnose({
+    practice: { achievementRate: 20, doneDays: 2, missedDays: 8, restDays: 1 },
+  });
+  const texts = [
+    ...d.findings.flatMap((f) => [f.fact, f.reading, f.action || '']),
+    ...d.watchPoints.flatMap((w) => [w.title, w.body]),
+  ];
+  for (const text of texts) {
     for (const word of ng) {
-      assert.ok(!m.title.includes(word) && !m.body.includes(word), `禁止表現: ${word}`);
+      assert.ok(!text.includes(word), `禁止表現「${word}」が含まれる: ${text}`);
     }
   }
+});
+
+test('診断：数値には必ず母数か期間が添えられる', () => {
+  const d = diagnose();
+  for (const finding of d.findings) {
+    assert.match(finding.fact, /直近|全期間|実施|平均/, `根拠が不明な指摘: ${finding.fact}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 予約したラウンドの事前分析
+// ---------------------------------------------------------------------------
+
+test('予約：過去成績とコースレートから想定スコアを出す', () => {
+  const result = analyzeBooking({
+    booking: { date: '2026-09-06', courseId: 'c-toride', courseName: '取手国際ゴルフ倶楽部', tee: 'レギュラー' },
+    rounds: SEED_ROUNDS,
+    courses: SEED_COURSES,
+    settings: { targetScore: 85 },
+  });
+  assert.equal(result.history.count, 5);
+  assert.ok(result.expectedScore > 80 && result.expectedScore < 105);
+  assert.equal(result.targetRange.length, 2);
+  assert.ok(result.notes.some((n) => n.includes('平均')));
+  assert.ok(result.notes.some((n) => n.includes('要確認')));
+});
+
+test('予約：記録のないコースでも事前分析を返す', () => {
+  const result = analyzeBooking({
+    booking: { date: '2026-09-06', courseId: 'c-new', courseName: '初めてのGC' },
+    rounds: SEED_ROUNDS,
+    courses: SEED_COURSES,
+  });
+  assert.equal(result.history, null);
+  assert.ok(result.notes.some((n) => n.includes('センター')));
 });
