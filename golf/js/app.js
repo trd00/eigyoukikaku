@@ -387,7 +387,9 @@ function renderHomeBooking() {
 function renderLastRound() {
   const wrap = $('#home-last-round');
   clear(wrap);
-  const last = sortByDateAsc(allRounds(state)).at(-1);
+  // 古いiOS Safari（15.3以前）に Array.prototype.at がないため添字で取得する
+  const sortedRounds = sortByDateAsc(allRounds(state));
+  const last = sortedRounds[sortedRounds.length - 1];
   if (!last) {
     wrap.appendChild(el('p', { class: 'empty', text: 'まだラウンド記録がありません' }));
     return;
@@ -919,7 +921,10 @@ function renderBookingForm() {
 
   const wrap = $('#bk-analysis');
   clear(wrap);
-  if (!booking) return;
+  if (!booking) {
+    wrap.appendChild(el('p', { class: 'empty', text: '予約は登録されていません' }));
+    return;
+  }
 
   const analysis = analyzeBooking({
     booking,
@@ -927,9 +932,12 @@ function renderBookingForm() {
     courses: courseList(state),
     settings: state.settings,
   });
-  wrap.appendChild(el('hr', { class: 'sep' }));
   wrap.appendChild(
-    el('p', { class: 'card-title', text: `${booking.courseName} の事前分析`, style: 'margin-bottom:6px' })
+    el('p', {
+      class: 'score-course',
+      text: `${booking.courseName}／${formatLong(booking.date)}`,
+      style: 'margin:0 0 6px',
+    })
   );
   if (analysis.targetRange) {
     wrap.appendChild(
@@ -1557,6 +1565,8 @@ function init() {
   if (!canPersist) {
     toast('この端末では保存できない設定です（プライベートモードなど）', true);
   }
+  // index.html の起動チェック用。ここまで来れば画面は動いている。
+  window.__trdGolfReady = true;
 }
 
 init();

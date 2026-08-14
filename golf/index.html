@@ -21,6 +21,51 @@
     <link rel="icon" href="./icons/icon-192.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./css/style.css" />
+
+    <!--
+      読み込みに失敗したとき、無言で止まらずに理由を画面に出す。
+      module より先に実行したいので、通常スクリプトで先頭に置く。
+    -->
+    <script>
+      (function () {
+        function showError(text) {
+          var box = document.getElementById('boot-error');
+          if (!box) {
+            box = document.createElement('div');
+            box.id = 'boot-error';
+            box.setAttribute('role', 'alert');
+            box.style.cssText =
+              'position:fixed;left:0;right:0;top:0;z-index:999;background:#7a2a22;color:#ffe9e5;' +
+              'font:13px/1.5 -apple-system,sans-serif;padding:12px 14px;white-space:pre-wrap;word-break:break-word';
+            (document.body || document.documentElement).appendChild(box);
+          }
+          box.textContent = 'アプリの読み込みでエラーが起きました。この文をそのまま送ってください。\n' + text;
+        }
+
+        window.addEventListener('error', function (e) {
+          if (e.target && e.target.tagName === 'SCRIPT') {
+            showError('スクリプトを読み込めません: ' + (e.target.src || ''));
+            return;
+          }
+          if (e.message) showError(e.message + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (e) {
+          showError('処理エラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+        });
+
+        // 起動できたかを確認する。app.js が動けば window.__trdGolfReady が立つ。
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            if (!window.__trdGolfReady) {
+              showError(
+                '画面の初期化が完了しませんでした（対応していないブラウザの可能性があります）。\niOSのバージョンを設定＞一般＞情報でご確認ください。'
+              );
+            }
+          }, 2500);
+        });
+      })();
+    </script>
   </head>
   <body>
     <header class="app-header">
@@ -230,33 +275,6 @@
       <!-- ================= スコア ================= -->
       <div class="view" id="view-score" hidden>
         <section class="card">
-          <p class="card-title">次のラウンドの予約</p>
-          <div class="field-row">
-            <div class="field">
-              <label for="bk-date">日付</label>
-              <input type="date" id="bk-date" />
-            </div>
-            <div class="field">
-              <label for="bk-tee">使用ティー</label>
-              <select id="bk-tee">
-                <option value="レギュラー">レギュラー</option>
-                <option value="フロント">フロント</option>
-                <option value="バック">バック</option>
-              </select>
-            </div>
-          </div>
-          <div class="field">
-            <label for="bk-course">ゴルフ場</label>
-            <select id="bk-course"></select>
-          </div>
-          <div class="btn-row">
-            <button class="btn-ghost" id="bk-delete">予約を取り消す</button>
-            <button class="btn-primary" id="bk-save">予約を保存</button>
-          </div>
-          <div id="bk-analysis"></div>
-        </section>
-
-        <section class="card">
           <p class="card-title">スコアを登録</p>
           <details class="group" id="score-form-group">
             <summary id="score-form-summary">＋ 新しいラウンドを登録する</summary>
@@ -379,6 +397,38 @@
             <span class="chip" id="score-count">0件</span>
           </p>
           <div id="score-list"></div>
+        </section>
+
+        <section class="card">
+          <p class="card-title">次のラウンドの予約</p>
+          <div id="bk-analysis"></div>
+          <details class="group" id="booking-form-group">
+            <summary id="booking-form-summary">予約を登録・変更する</summary>
+            <div class="group-body">
+              <div class="field-row">
+                <div class="field">
+                  <label for="bk-date">日付</label>
+                  <input type="date" id="bk-date" />
+                </div>
+                <div class="field">
+                  <label for="bk-tee">使用ティー</label>
+                  <select id="bk-tee">
+                    <option value="レギュラー">レギュラー</option>
+                    <option value="フロント">フロント</option>
+                    <option value="バック">バック</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="bk-course">ゴルフ場</label>
+                <select id="bk-course"></select>
+              </div>
+              <div class="btn-row">
+                <button class="btn-ghost" id="bk-delete">予約を取り消す</button>
+                <button class="btn-primary" id="bk-save">予約を保存</button>
+              </div>
+            </div>
+          </details>
         </section>
 
         <section class="card" id="course-section">
