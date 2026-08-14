@@ -1,19 +1,45 @@
 // ゴルフ場マスタ。コースレート／スロープレーティングを保持し、スコアの難易度補正に使う。
 //
-// 重要：初期値のコースレート・スロープは一般的な相場から置いた「仮の値」。
-// スコアカードや倶楽部の公式値と異なる場合があるため verified:false を付け、
-// 画面上に「要確認」を表示する。正しい値に更新すると分析精度が上がる。
+// 名称は楽天GORAのラウンド履歴一覧から取り込んだもの。一覧では名前が途中で
+// 省略されるため、正式名称と異なる場合がある（スコア画面から編集できる）。
+//
+// コースレート・スロープ・パーは一覧に表示されないため未登録（null）にしてある。
+// 推測値を入れると難易度補正が狂うため、実際の値が分かるまで空のままにする。
+// スコアカードの値を登録すると、ディファレンシャルと推定ハンディが計算される。
 
 export const SEED_COURSES = [
-  course('c-toride', '取手国際ゴルフ倶楽部', 72, 71.4, 128, 6350),
-  course('c-oatsugi', '大厚木カントリークラブ', 72, 70.8, 126, 6180),
-  course('c-tomei', '東名カントリークラブ', 72, 71.0, 127, 6250),
-  course('c-sagami', '相模カンツリー倶楽部', 72, 71.8, 130, 6420),
-  course('c-tsukuba', '筑波東急ゴルフクラブ', 72, 71.2, 129, 6300),
+  course('c-ube72', '宇部７２カントリークラブ'),
+  course('c-unimat-yamaguchi', 'ユニマット山口ゴルフクラブ'),
+  course('c-asa', '厚狭ゴルフ倶楽部'),
+  course('c-yuda', '湯田カントリークラブ'),
+  course('c-yanai', '柳井カントリー倶楽部'),
+  course('c-nakasu', '中須ゴルフ倶楽部'),
+  course('c-moji', '門司ゴルフ倶楽部'),
+  course('c-hagi-iwami', '萩・石見カントリー倶楽部'),
+  course('c-island-garden', 'アイランドゴルフガーデン'),
+  course('c-miwa', '美和ゴルフクラブ'),
+  course('c-shunan', '周南カントリー倶楽部'),
+  course('c-sanyo-kokusai', '山陽国際ゴルフクラブ'),
+  course('c-sanyo-green', '山陽グリーンゴルフ'),
+  course('c-lakeswan', 'レークスワンカントリークラブ'),
+  course('c-yamaguchi-rainbow', '山口レインボーヒルズカントリークラブ'),
+  course('c-iwakuni-century', '岩国センチュリーゴルフ倶楽部'),
+  course('c-mouri-teien', '毛利庭園ゴルフ倶楽部'),
+  course('c-kudamatsu', 'くだまつパブリックゴルフ場'),
 ];
 
-function course(id, name, par, courseRate, slopeRating, yards) {
-  return { id, name, par, courseRate, slopeRating, yards, tee: 'レギュラー', memo: '', verified: false };
+function course(id, name) {
+  return {
+    id,
+    name,
+    par: null,
+    courseRate: null,
+    slopeRating: null,
+    yards: null,
+    tee: 'レギュラー',
+    memo: '',
+    verified: false,
+  };
 }
 
 /** 名前からコースを引く（初期ラウンドデータの紐付け用） */

@@ -684,6 +684,7 @@ const SCORE_FIELDS = {
   date: '#sc-date',
   courseId: '#sc-course',
   tee: '#sc-tee',
+  holes: '#sc-holes',
   outScore: '#sc-out',
   inScore: '#sc-in',
   totalScore: '#sc-total',
@@ -726,26 +727,35 @@ function renderScore() {
 }
 
 function scoreCard(round, { best = null, compact = false } = {}) {
-  const girPct = Math.round((round.greensInRegulation / 18) * 1000) / 10;
-  const chips = [
-    chip('OUT', round.outScore ?? '—'),
-    chip('IN', round.inScore ?? '—'),
-    chip('パット', round.putts),
-    chip('パーオン', `${round.greensInRegulation}/18 (${girPct}%)`),
-  ];
+  const holes = round.holes ?? 18;
+  const chips = [];
+  if (holes !== 18) chips.push(el('span', { class: 'chip warn', text: `${holes}H` }));
+  if (round.outScore != null) chips.push(chip('OUT', round.outScore));
+  if (round.inScore != null) chips.push(chip('IN', round.inScore));
+  chips.push(chip('パット', round.putts ?? '—'));
+  if (round.greensInRegulation != null) {
+    const girPct = Math.round((round.greensInRegulation / holes) * 1000) / 10;
+    chips.push(chip('パーオン', `${round.greensInRegulation}/${holes} (${girPct}%)`));
+  } else {
+    chips.push(chip('パーオン', '未入力'));
+  }
   const course = courseById(courseList(state), round.courseId);
-  const diff = differential(round.totalScore, course?.courseRate ?? null, course?.slopeRating ?? null);
+  const diff = holes === 18 ? differential(round.totalScore, course?.courseRate ?? null, course?.slopeRating ?? null) : null;
   if (diff !== null) chips.push(chip('対CR', `+${round1(round.totalScore - course.courseRate)}／D ${diff}`));
   if (!compact) {
-    chips.push(chip('ボギーオン以内', `${round.bogeyOn}/18`));
-    if (round.source === 'seed') chips.push(el('span', { class: 'chip seed', text: '初期データ' }));
+    if (round.bogeyOn != null) chips.push(chip('ボギーオン以内', `${round.bogeyOn}/${holes}`));
+    if (round.penalties != null) chips.push(chip('OB・1ペナ', `${round.penalties}`));
+    if (round.source === 'seed') chips.push(el('span', { class: 'chip seed', text: 'GORA取込' }));
   }
 
   const card = el('div', { class: 'score-card' }, [
     el('div', { class: 'score-top' }, [
       el('div', {}, [
         el('p', { class: 'score-course', text: round.course }),
-        el('p', { class: 'score-date', text: `${formatLong(round.date)}／${round.tee || '—'}` }),
+        el('p', {
+          class: 'score-date',
+          text: `${formatLong(round.date)}${round.tee ? `／${round.tee}` : ''}${holes !== 18 ? `／${holes}ホール` : ''}`,
+        }),
       ]),
       el('span', {
         class: `score-total${best !== null && round.totalScore === best ? ' best' : ''}`,
@@ -773,13 +783,13 @@ function scoreCard(round, { best = null, compact = false } = {}) {
 
   if (expandedRound === round.id) {
     const detail = el('div', { class: 'score-detail' }, [
-      kv('3パット', `${round.threePutts}回`),
-      kv('パーオン後の3パット', `${round.threePuttsAfterGIR}回`),
-      kv('OB・1ペナ', `${round.penalties}回`),
-      kv('ショートサイド', `${round.shortSideMisses}回`),
-      kv('キャリー不足', `${round.carryShorts}回`),
-      kv('判断ミス', `${round.strategyErrors}回`),
-      kv('トリプル以上', `${round.tripleOrWorse}ホール`),
+      kv('3パット', count(round.threePutts, '回')),
+      kv('パーオン後の3パット', count(round.threePuttsAfterGIR, '回')),
+      kv('OB・1ペナ', count(round.penalties, '回')),
+      kv('ショートサイド', count(round.shortSideMisses, '回')),
+      kv('キャリー不足', count(round.carryShorts, '回')),
+      kv('判断ミス', count(round.strategyErrors, '回')),
+      kv('トリプル以上', count(round.tripleOrWorse, 'ホール')),
     ]);
     if (round.bestFeeling) detail.appendChild(kv('良かった感覚', round.bestFeeling));
     if (round.nextFocus) detail.appendChild(kv('次回の課題', round.nextFocus));
@@ -840,8 +850,9 @@ function renderCourseMaster() {
       chip('CR', course.courseRate ?? '—'),
       chip('スロープ', course.slopeRating ?? '—'),
     ];
-    if (played) chips.push(chip('平均', played.average));
-    if (!course.verified) chips.push(el('span', { class: 'chip warn', text: '要確認' }));
+    if (played && played.average !== null) chips.push(chip('平均', played.average));
+    if (course.courseRate === null) chips.push(el('span', { class: 'chip warn', text: 'CR未登録' }));
+    else if (!course.verified) chips.push(el('span', { class: 'chip warn', text: '要確認' }));
 
     wrap.appendChild(
       el('div', { class: 'course-row' }, [
@@ -995,6 +1006,11 @@ function chip(label, value) {
   return el('span', { class: 'chip' }, [document.createTextNode(`${label} `), el('b', { text: String(value) })]);
 }
 
+/** 未入力（null）は 0 と区別して「未入力」と出す */
+function count(value, unit) {
+  return value === null || value === undefined ? '未入力' : `${value}${unit}`;
+}
+
 function kv(label, value) {
   return el('div', { class: 'kv' }, [el('span', { text: label }), el('span', { text: String(value) })]);
 }
@@ -1007,6 +1023,8 @@ function editRound(round) {
     node.value = value === null || value === undefined ? '' : value;
   }
   updateCourseNote();
+  $('#sc-holes').value = String(round.holes ?? 18);
+  if (!round.tee) $('#sc-tee').value = 'レギュラー';
   $('#sc-id').value = round.id;
   $('#score-form-group').open = true;
   $('#score-form-summary').textContent = 'ラウンドを編集する';
@@ -1018,6 +1036,7 @@ function clearScoreForm() {
   $('#sc-id').value = '';
   $('#sc-date').value = today;
   $('#sc-tee').value = 'レギュラー';
+  $('#sc-holes').value = '18';
   $('#sc-course-note').textContent = '';
   $('#score-form-summary').textContent = '＋ 新しいラウンドを登録する';
 }
@@ -1049,8 +1068,16 @@ function saveRound() {
   if (!course) return toast('ゴルフ場を選択してください', true);
   if (!total) return toast('合計スコアを入力してください', true);
 
-  const gir = clamp(num($('#sc-gir').value), 0, 18);
-  const bogey = clamp(num($('#sc-bogey').value), 0, 18);
+  const holes = num($('#sc-holes').value, 18) === 9 ? 9 : 18;
+  // 未入力は 0 ではなく null。0回だったのか記録していないのかを区別する。
+  const optional = (sel, min, max) => {
+    const raw = $(sel).value.trim();
+    if (raw === '') return null;
+    return clamp(num(raw), min, max);
+  };
+  const gir = optional('#sc-gir', 0, holes);
+  const bogey = optional('#sc-bogey', 0, holes);
+  const tpAfterGir = optional('#sc-3putt-gir', 0, holes);
 
   const record = {
     id: $('#sc-id').value || newId('round'),
@@ -1058,19 +1085,20 @@ function saveRound() {
     course,
     courseId: courseId || null,
     tee: $('#sc-tee').value,
+    holes,
     outScore: out,
     inScore: inn,
     totalScore: total,
-    putts: num($('#sc-putts').value),
+    putts: optional('#sc-putts', 0, 99),
     greensInRegulation: gir,
-    bogeyOn: Math.max(bogey, gir),
-    penalties: num($('#sc-pen').value),
-    threePutts: num($('#sc-3putt').value),
-    threePuttsAfterGIR: Math.min(num($('#sc-3putt-gir').value), gir),
-    shortSideMisses: num($('#sc-shortside').value),
-    carryShorts: num($('#sc-carryshort').value),
-    strategyErrors: num($('#sc-strategy').value),
-    tripleOrWorse: num($('#sc-triple').value),
+    bogeyOn: bogey === null ? null : gir === null ? bogey : Math.max(bogey, gir),
+    penalties: optional('#sc-pen', 0, 50),
+    threePutts: optional('#sc-3putt', 0, holes),
+    threePuttsAfterGIR: tpAfterGir === null ? null : gir === null ? tpAfterGir : Math.min(tpAfterGir, gir),
+    shortSideMisses: optional('#sc-shortside', 0, holes),
+    carryShorts: optional('#sc-carryshort', 0, holes),
+    strategyErrors: optional('#sc-strategy', 0, holes),
+    tripleOrWorse: optional('#sc-triple', 0, holes),
     bestFeeling: $('#sc-feel').value.trim(),
     nextFocus: $('#sc-next').value.trim(),
     source: 'user',
@@ -1317,39 +1345,44 @@ function renderCourseStats(stats) {
     return;
   }
   for (const entry of stats) {
-    const chips = [
-      chip('回数', `${entry.count}回`),
-      chip('平均', entry.average),
-      chip('ベスト', entry.best),
-      chip('平均パット', entry.averagePutts),
-      chip('平均パーオン', `${entry.averageGir}/18`),
-    ];
+    const chips = [];
+    if (entry.count) chips.push(chip('18H', `${entry.count}回`));
+    if (entry.halfCount) chips.push(chip('9H', `${entry.halfCount}回`));
+    if (entry.average !== null) chips.push(chip('平均', entry.average));
+    if (entry.best !== null) chips.push(chip('ベスト', entry.best));
+    if (entry.averagePutts !== null) chips.push(chip('平均パット', entry.averagePutts));
+    if (entry.averageGir !== null) chips.push(chip('平均パーオン', `${entry.averageGir}/18`));
     if (entry.averageDifferential !== null) chips.push(chip('D平均', entry.averageDifferential));
-    if (!entry.verified) chips.push(el('span', { class: 'chip warn', text: 'CR要確認' }));
+    if (entry.courseRate === null) chips.push(el('span', { class: 'chip warn', text: 'CR未登録' }));
+    else if (!entry.verified) chips.push(el('span', { class: 'chip warn', text: 'CR要確認' }));
 
+    // 未入力の項目は行ごと出さない（0回と誤読させない）
     const detail = [
-      `キャリー不足 ${entry.averageCarryShorts}回`,
-      `ショートサイド ${entry.averageShortSide}回`,
-      `ペナルティ ${entry.averagePenalties}回`,
-      `トリプル以上 ${entry.averageTriple}H`,
-    ].join('／');
+      entry.averagePenalties !== null ? `OB・1ペナ ${entry.averagePenalties}回` : null,
+      entry.averageCarryShorts !== null ? `キャリー不足 ${entry.averageCarryShorts}回` : null,
+      entry.averageShortSide !== null ? `ショートサイド ${entry.averageShortSide}回` : null,
+      entry.averageTriple !== null ? `トリプル以上 ${entry.averageTriple}H` : null,
+    ].filter(Boolean);
 
-    wrap.appendChild(
-      el('div', { class: 'course-row' }, [
-        el('div', { class: 'course-row-head' }, [
-          el('span', { class: 'course-name', text: entry.name }),
-          el('span', {
-            class: 'chip',
-            text:
-              entry.latestDelta === null
-                ? `前回 ${entry.latest.totalScore}`
-                : `前回 ${entry.latest.totalScore}（${entry.latestDelta > 0 ? '+' : ''}${entry.latestDelta}）`,
-          }),
-        ]),
-        el('div', { class: 'score-chips' }, chips),
-        el('p', { class: 'section-note', text: `1ラウンド平均：${detail}` }),
-      ])
-    );
+    const row = el('div', { class: 'course-row' }, [
+      el('div', { class: 'course-row-head' }, [
+        el('span', { class: 'course-name', text: entry.name }),
+        entry.latest
+          ? el('span', {
+              class: 'chip',
+              text:
+                entry.latestDelta === null
+                  ? `前回 ${entry.latest.totalScore}`
+                  : `前回 ${entry.latest.totalScore}（${entry.latestDelta > 0 ? '+' : ''}${entry.latestDelta}）`,
+            })
+          : null,
+      ]),
+      el('div', { class: 'score-chips' }, chips),
+    ]);
+    if (detail.length) {
+      row.appendChild(el('p', { class: 'section-note', text: `1ラウンド平均：${detail.join('／')}` }));
+    }
+    wrap.appendChild(row);
   }
 }
 

@@ -4,7 +4,7 @@
 // 判別できないことは「判別できない」と書き、必要な計測データを提示する。
 
 import { resolveCourse, STANDARD_SLOPE, DEFAULT_PAR } from './courses.js';
-import { recent, round1, sortByDateAsc } from './stats.js';
+import { fullRounds, halfRounds, recent, round1, sortByDateAsc, values } from './stats.js';
 
 // ---------------------------------------------------------------------------
 // コースレート関連
@@ -49,14 +49,18 @@ export function expectedScore(courseRate, slopeRating, handicap) {
 export function withCourseContext(rounds, courses) {
   return sortByDateAsc(rounds).map((round) => {
     const ctx = resolveCourse(round, courses);
+    const holes = round.holes ?? 18;
+    // 9ホールはコースレート（18ホール基準）と比較できないため補正しない
+    const canRate = holes === 18;
     return {
       ...round,
-      par: ctx.par ?? DEFAULT_PAR,
+      holes,
+      par: ctx.par,
       courseRate: ctx.courseRate,
       slopeRating: ctx.slopeRating,
       courseVerified: ctx.verified,
-      differential: differential(round.totalScore, ctx.courseRate, ctx.slopeRating),
-      overPar: round.totalScore - (ctx.par ?? DEFAULT_PAR),
+      differential: canRate ? differential(round.totalScore, ctx.courseRate, ctx.slopeRating) : null,
+      overPar: ctx.par != null ? round.totalScore - ctx.par : null,
     };
   });
 }
@@ -83,33 +87,41 @@ export function courseStats(rounds, courses) {
 
   return [...map.values()]
     .map((entry) => {
-      const scores = entry.rounds.map((r) => r.totalScore);
-      const diffs = entry.rounds.map((r) => r.differential).filter((d) => d !== null);
-      const latest = entry.rounds[entry.rounds.length - 1];
-      const previous = entry.rounds[entry.rounds.length - 2] || null;
+      // 平均・ベストは18ホールのラウンドだけで出す（9ホールは別カウント）
+      const full = fullRounds(entry.rounds);
+      const scores = values(full, 'totalScore');
+      const diffs = full.map((r) => r.differential).filter((d) => d !== null);
+      const latest = full[full.length - 1] || entry.rounds[entry.rounds.length - 1];
+      const previous = full[full.length - 2] || null;
       return {
         ...entry,
-        count: entry.rounds.length,
-        average: round1(scores.reduce((a, b) => a + b, 0) / scores.length),
-        best: Math.min(...scores),
-        worst: Math.max(...scores),
-        averageDifferential: diffs.length ? round1(diffs.reduce((a, b) => a + b, 0) / diffs.length) : null,
+        count: full.length,
+        halfCount: halfRounds(entry.rounds).length,
+        average: scores.length ? round1(avg(scores)) : null,
+        best: scores.length ? Math.min(...scores) : null,
+        worst: scores.length ? Math.max(...scores) : null,
+        averageDifferential: diffs.length ? round1(avg(diffs)) : null,
         latest,
         latestDelta: previous ? latest.totalScore - previous.totalScore : null,
-        averagePutts: round1(avg(entry.rounds.map((r) => r.putts))),
-        averageGir: round1(avg(entry.rounds.map((r) => r.greensInRegulation))),
-        averagePenalties: round1(avg(entry.rounds.map((r) => r.penalties))),
-        averageCarryShorts: round1(avg(entry.rounds.map((r) => r.carryShorts))),
-        averageShortSide: round1(avg(entry.rounds.map((r) => r.shortSideMisses))),
-        averageTriple: round1(avg(entry.rounds.map((r) => r.tripleOrWorse))),
+        averagePutts: avgOrNull(values(full, 'putts')),
+        averageGir: avgOrNull(values(full, 'greensInRegulation')),
+        averagePenalties: avgOrNull(values(full, 'penalties')),
+        averageCarryShorts: avgOrNull(values(full, 'carryShorts')),
+        averageShortSide: avgOrNull(values(full, 'shortSideMisses')),
+        averageTriple: avgOrNull(values(full, 'tripleOrWorse')),
       };
     })
-    .sort((a, b) => b.count - a.count || a.average - b.average);
+    .sort((a, b) => b.count - a.count || (a.average ?? 999) - (b.average ?? 999));
 }
 
 function avg(list) {
   const nums = list.map(Number).filter((n) => Number.isFinite(n));
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+}
+
+/** 平均。値が1つもなければ null（未入力と0を区別する） */
+function avgOrNull(list) {
+  return list.length ? round1(avg(list)) : null;
 }
 
 function pct(part, whole) {
@@ -166,6 +178,11 @@ export const DATA_REQUESTS = {
     how: '練習場のバンカーで10球。1回で出た球数を記録する。',
     why: 'トリプル以上のホールにバンカーが絡んでいる場合、最短の改善箇所になるため。',
   },
+  'round-detail': {
+    title: 'ラウンド中のパーオン数・ボギーオン数・3パット数',
+    how: 'スコアカードに「◯＝パーオン」「△＝ボギーオン以内」「3＝3パット」を書き、終了後にアプリのスコア登録で合計を入れる。1ホールにつき記号1つで済む。',
+    why: 'スコアの内訳が分からないと、打数がどこで増えているか（ショット・アプローチ・パット）を特定できないため。',
+  },
   'course-rating': {
     title: '予約コースのコースレート・スロープ・パー',
     how: 'スコアカードまたは倶楽部の公式ページで、使用するティーの値を確認して登録する。',
@@ -187,7 +204,8 @@ export const DATA_REQUESTS = {
  */
 export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = null, settings = {} }) {
   const enriched = withCourseContext(rounds, courses);
-  const last5 = recent(enriched, 5);
+  const full = fullRounds(enriched);
+  const last5 = recent(full, 5);
   const findings = [];
   const watchPoints = [];
   const planChanges = [];
@@ -195,7 +213,7 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
 
   const targetScore = settings.targetScore ?? 85;
 
-  if (!enriched.length) {
+  if (!full.length) {
     return {
       sample: { count: 0 },
       findings: [],
@@ -207,37 +225,43 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
   }
 
   // --- 基礎数値 -------------------------------------------------------------
-  const scores5 = last5.map((r) => r.totalScore);
-  const avgScore5 = round1(avg(scores5));
-  const avgScoreAll = round1(avg(enriched.map((r) => r.totalScore)));
-  const spread = Math.max(...scores5) - Math.min(...scores5);
+  // 未入力（null）は 0 として扱わない。値が無い指標は null のまま扱い、指摘を出さない。
+  const scores5 = values(last5, 'totalScore');
+  const avgScore5 = avgOrNull(scores5);
+  const avgScoreAll = avgOrNull(values(full, 'totalScore'));
+  const spread = scores5.length ? Math.max(...scores5) - Math.min(...scores5) : null;
 
   const diffs5 = last5.map((r) => r.differential).filter((d) => d !== null);
   const avgDiff5 = diffs5.length ? round1(avg(diffs5)) : null;
   const bestDiff5 = diffs5.length ? Math.min(...diffs5) : null;
-  const handicap = estimateHandicap(enriched.map((r) => r.differential));
+  const handicap = estimateHandicap(full.map((r) => r.differential));
 
-  const holes5 = last5.length * 18;
-  const girRate5 = pct(sum(last5.map((r) => r.greensInRegulation)), holes5);
-  const girRateAll = pct(sum(enriched.map((r) => r.greensInRegulation)), enriched.length * 18);
-  const bogeyRate5 = pct(sum(last5.map((r) => r.bogeyOn)), holes5);
-  const putts5 = round1(avg(last5.map((r) => r.putts)));
-  const puttsAll = round1(avg(enriched.map((r) => r.putts)));
-  const gir5 = sum(last5.map((r) => r.greensInRegulation));
-  const tpAfterGir5 = sum(last5.map((r) => r.threePuttsAfterGIR));
-  const tpAfterGirRate5 = pct(tpAfterGir5, gir5);
-  const threePutts5 = round1(avg(last5.map((r) => r.threePutts)));
-  const penalties5 = round1(avg(last5.map((r) => r.penalties)));
-  const triple5 = round1(avg(last5.map((r) => r.tripleOrWorse)));
-  const carryShort5 = round1(avg(last5.map((r) => r.carryShorts)));
-  const shortSide5 = round1(avg(last5.map((r) => r.shortSideMisses)));
-  const strategy5 = round1(avg(last5.map((r) => r.strategyErrors)));
+  const gir5List = values(last5, 'greensInRegulation');
+  const girAllList = values(full, 'greensInRegulation');
+  const girRate5 = gir5List.length ? pct(sum(gir5List), gir5List.length * 18) : null;
+  const girRateAll = girAllList.length ? pct(sum(girAllList), girAllList.length * 18) : null;
+  const bogey5List = values(last5, 'bogeyOn');
+  const bogeyRate5 = bogey5List.length ? pct(sum(bogey5List), bogey5List.length * 18) : null;
+  const putts5 = avgOrNull(values(last5, 'putts'));
+  const puttsAll = avgOrNull(values(full, 'putts'));
+  const gir5 = sum(gir5List);
+  const withGirAndPutt = last5.filter((r) => r.greensInRegulation != null && r.threePuttsAfterGIR != null);
+  const tpAfterGir5 = sum(withGirAndPutt.map((r) => r.threePuttsAfterGIR));
+  const tpAfterGirRate5 = withGirAndPutt.length
+    ? pct(tpAfterGir5, sum(withGirAndPutt.map((r) => r.greensInRegulation)))
+    : null;
+  const penalties5 = avgOrNull(values(last5, 'penalties'));
+  const triple5 = avgOrNull(values(last5, 'tripleOrWorse'));
+  const carryShort5 = avgOrNull(values(last5, 'carryShorts'));
+  const shortSide5 = avgOrNull(values(last5, 'shortSideMisses'));
+  const strategy5 = avgOrNull(values(last5, 'strategyErrors'));
 
   const withNines = last5.filter((r) => r.outScore != null && r.inScore != null);
   const nineGap = withNines.length ? round1(avg(withNines.map((r) => r.inScore - r.outScore))) : null;
 
   const sample = {
-    count: enriched.length,
+    count: full.length,
+    halfCount: halfRounds(enriched).length,
     recentCount: last5.length,
     from: last5[0]?.date ?? null,
     to: last5[last5.length - 1]?.date ?? null,
@@ -273,9 +297,12 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
       key: 'baseline-no-rate',
       level: 'baseline',
       area: '現在地',
-      fact: `直近${last5.length}R 平均 ${avgScore5}打（全${enriched.length}R平均 ${avgScoreAll}打）。`,
-      reading: 'コースレートが未登録のため、難易度を補正した比較ができていない。コースごとの難易度差がそのままスコア差に見えている状態。',
-      action: 'スコア画面のゴルフ場管理で、使用ティーのコースレートとスロープを登録する。',
+      fact: `直近${last5.length}R 平均 ${avgScore5}打（18ホール全${full.length}R平均 ${avgScoreAll}打／ベスト ${Math.min(
+        ...values(full, 'totalScore')
+      )}／スコアのレンジ ${spread}打）。`,
+      reading:
+        'コースレートが未登録のため、難易度を補正した比較ができていない。今の数値は「行ったコースの難易度差込み」の平均で、易しいコースで出た数字と難しいコースで出た数字が同じ重みで混ざっている。',
+      action: 'スコア画面下部のゴルフ場一覧で、よく行くコースのコースレートとスロープを登録する。3〜4コース入れるだけでも精度が変わる。',
       dataNeeded: ['course-rating'],
     });
     dataKeys.push('course-rating');
@@ -307,6 +334,34 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
     });
   }
 
+  // --- 2b. パット数の変化（パーオン数が無くても言える範囲だけ言う） ---------
+  if (tpAfterGirRate5 === null && putts5 !== null && puttsAll !== null && putts5 - puttsAll >= 1.5) {
+    findings.push({
+      key: 'putts-up-unknown-cause',
+      level: 'watch',
+      area: 'パット',
+      fact: `直近${last5.length}Rの平均パット ${putts5}（18ホール全${full.length}R平均 ${puttsAll}）。同じ期間の平均スコアは ${avgScore5}（全期間 ${avgScoreAll}）。`,
+      reading:
+        'パット数は増えているが、スコアは同程度に収まっている。これは「グリーンに乗る回数が増えて長い1stパットが残っている」場合にも、「距離感が合っていない」場合にも起きる。パーオン数を記録していないため、現時点ではどちらか判別できない。パット数が多いこと自体を悪化とは判断しない。',
+      action: '次のラウンドからパーオン数と、1stパットの残り距離を記録する。2ラウンド分あれば切り分けられる。',
+      dataNeeded: ['round-detail', 'first-putt-distance'],
+    });
+    dataKeys.push('round-detail', 'first-putt-distance');
+    // 木曜のパター練習は内容を変えず、結果を数える形にする（原因が判明するまでの措置）
+    planChanges.push({
+      day: 4,
+      title: 'パター（本数を記録する）',
+      minutes: 15,
+      purpose: '距離感の現在地を数値で残す',
+      steps: [
+        '10m×10球：カップ半径1m以内に入った本数を記録',
+        '5m×10球：ショート／オーバーのどちらに外れたかを記録',
+        '1m×10球：カップインで終える',
+      ],
+      reason: `平均パット ${puttsAll} → ${putts5}（原因は未判別）`,
+    });
+  }
+
   // --- 3. パーオン率の変化 --------------------------------------------------
   if (girRate5 !== null && girRateAll !== null && girRate5 - girRateAll >= 5) {
     findings.push({
@@ -331,12 +386,18 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
   }
 
   // --- 4. キャリー不足 ------------------------------------------------------
-  if (carryShort5 >= 1.5) {
+  if (carryShort5 !== null && carryShort5 >= 1.5) {
+    const extra = [
+      shortSide5 !== null ? `ショートサイド ${shortSide5}回` : null,
+      strategy5 !== null ? `判断ミス ${strategy5}回` : null,
+    ]
+      .filter(Boolean)
+      .join('、');
     findings.push({
       key: 'carry-short',
       level: 'improve',
       area: '番手選択',
-      fact: `直近${last5.length}Rのキャリー不足 1ラウンド平均 ${carryShort5}回。ショートサイド ${shortSide5}回、判断ミス ${strategy5}回。`,
+      fact: `直近${last5.length}Rのキャリー不足 1ラウンド平均 ${carryShort5}回。${extra}`,
       reading: '手前に落ちる回数が一定数ある。番手選択を基準キャリー（中央値）で行っている場合、実際の平均はそれより手前に出るため、構造的に足りなくなる。',
       action: '番手選択を「安全キャリー」基準に切り替える。グリーン手前にハザードがある場合は1番手上げてセンター狙いに固定する。',
       dataNeeded: ['carry-median'],
@@ -345,7 +406,7 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
   }
 
   // --- 5. ペナルティ --------------------------------------------------------
-  if (penalties5 >= 2) {
+  if (penalties5 !== null && penalties5 >= 2) {
     findings.push({
       key: 'penalty',
       level: 'improve',
@@ -359,7 +420,7 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
   }
 
   // --- 6. トリプル以上 ------------------------------------------------------
-  if (triple5 >= 1.5) {
+  if (triple5 !== null && triple5 >= 1.5) {
     findings.push({
       key: 'triple',
       level: 'improve',
@@ -429,23 +490,50 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
     });
   }
 
+  // 未入力の項目を明示する。0として扱うと診断が実態とずれるため。
+  const missing = [
+    girAllList.length ? null : 'パーオン数',
+    values(full, 'bogeyOn').length ? null : 'ボギーオン数',
+    values(full, 'threePutts').length ? null : '3パット数',
+    values(full, 'carryShorts').length ? null : 'キャリー不足',
+    values(full, 'tripleOrWorse').length ? null : 'トリプル以上',
+  ].filter(Boolean);
+  if (missing.length) {
+    watchPoints.push({
+      title: `${missing.join('・')}が未入力`,
+      body: `楽天GORAのラウンド履歴一覧には スコア・パット・OB しか出ないため、これらは取り込めていない。0回ではなく「記録なし」として扱っており、この項目を根拠にした指摘は出していない。スコア一覧の各ラウンドを開いて入力するか、次のラウンドから記録すると診断に反映される。`,
+    });
+    dataKeys.push('round-detail');
+  }
+
   const unverified = courseStats(rounds, courses).filter((c) => c.courseRate === null || !c.verified);
   if (unverified.length) {
+    const noRate = unverified.filter((c) => c.courseRate === null);
     watchPoints.push({
-      title: 'コースレートが未確認のゴルフ場がある',
-      body: `${unverified.map((c) => c.name).join('、')}。初期値は一般的な相場から置いた仮の値で、実際と異なる可能性がある。スコアカードの値に更新すると、難易度補正後の比較が正確になる。`,
+      title: noRate.length ? 'コースレートが未登録のゴルフ場がある' : 'コースレートが未確認のゴルフ場がある',
+      body: `${unverified
+        .slice(0, 6)
+        .map((c) => c.name)
+        .join('、')}${unverified.length > 6 ? ` ほか${unverified.length - 6}件` : ''}。コースレートが入るまで、難易度を補正した比較（ディファレンシャル・推定ハンディ）は計算できない。よく行くコースから順に登録すると効果が大きい。`,
     });
     dataKeys.push('course-rating');
   }
 
-  if (sum(last5.map((r) => r.penalties)) === 0 && last5.length >= 3) {
+  if (sample.halfCount) {
+    watchPoints.push({
+      title: `9ホールのラウンドが${sample.halfCount}件ある`,
+      body: '9ホールのスコアを18ホールと同じ平均に混ぜると数値が壊れるため、平均・ベスト・推移グラフからは除外している。一覧には「9H」として残している。',
+    });
+  }
+
+  if (penalties5 !== null && penalties5 === 0 && last5.length >= 3) {
     watchPoints.push({
       title: 'ペナルティ0が続いている',
       body: 'OB・1ペナが本当に0なら問題はない。楽天GORA側の未入力をそのまま取り込んでいる場合は、この項目を根拠にした判断ができない。次のラウンドで実数を確認する。',
     });
   }
 
-  if (putts5 - puttsAll >= 2 && avgScore5 <= avgScoreAll) {
+  if (putts5 !== null && puttsAll !== null && avgScore5 !== null && avgScoreAll !== null && putts5 - puttsAll >= 2 && avgScore5 <= avgScoreAll) {
     watchPoints.push({
       title: 'パット数は増えているがスコアは悪化していない',
       body: `平均パット ${puttsAll} → ${putts5}、平均スコア ${avgScoreAll} → ${avgScore5}。ショットでグリーンに近づいた分をパットで戻している状態。パット数だけを指標にすると判断を誤る。`,
@@ -498,9 +586,16 @@ export function analyzeBooking({ booking, rounds, courses, settings = {} }) {
   const expected = expectedScore(course?.courseRate ?? null, course?.slopeRating ?? null, handicap);
 
   const notes = [];
-  if (history) {
+  if (history && history.count) {
+    const detail = [
+      history.averagePutts !== null ? `平均パット ${history.averagePutts}` : null,
+      history.averageCarryShorts !== null ? `キャリー不足 ${history.averageCarryShorts}回` : null,
+      history.averageShortSide !== null ? `ショートサイド ${history.averageShortSide}回` : null,
+      history.averageTriple !== null ? `トリプル以上 ${history.averageTriple}ホール` : null,
+    ].filter(Boolean);
     notes.push(
-      `このコースは${history.count}回。平均 ${history.average}／ベスト ${history.best}。1ラウンド平均で、キャリー不足 ${history.averageCarryShorts}回、ショートサイド ${history.averageShortSide}回、トリプル以上 ${history.averageTriple}ホール。`
+      `このコースは18ホールで${history.count}回。平均 ${history.average}／ベスト ${history.best}／ワースト ${history.worst}。` +
+        (detail.length ? `1ラウンド平均で ${detail.join('、')}。` : '')
     );
     if (history.latestDelta !== null) {
       notes.push(

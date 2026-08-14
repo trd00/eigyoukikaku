@@ -18,6 +18,8 @@ import {
   movingAverage,
   round1,
   scoreSeries,
+  fullRounds,
+  halfRounds,
 } from '../js/stats.js';
 import { projectDay, diffDays, addDays, weekday, todayJST, dateRange } from '../js/date.js';
 import { SEED_COURSES } from '../js/courses.js';
@@ -35,64 +37,99 @@ import {
 // 初期投入ラウンドデータ（要件9 / 受入条件15）
 // ---------------------------------------------------------------------------
 
-test('初期データは19ラウンド', () => {
-  assert.equal(SEED_ROUNDS.length, 19);
+/** 楽天GORAの履歴から取り込んだ36ラウンド（18ホール31／9ホール5） */
+test('初期データは36ラウンド（18H 31件・9H 5件）', () => {
+  assert.equal(SEED_ROUNDS.length, 36);
+  assert.equal(fullRounds(SEED_ROUNDS).length, 31);
+  assert.equal(halfRounds(SEED_ROUNDS).length, 5);
 });
 
-test('OUT+IN と totalScore が一致する', () => {
-  for (const r of SEED_ROUNDS) {
-    assert.equal(r.outScore + r.inScore, r.totalScore, `${r.id} の合計が不一致`);
-  }
+test('初期データの期間は2024-10-20〜2026-08-12', () => {
+  const dates = SEED_ROUNDS.map((r) => r.date).sort();
+  assert.equal(dates[0], '2024-10-20');
+  assert.equal(dates[dates.length - 1], '2026-08-12');
 });
 
-test('全19ラウンド平均は約92.5', () => {
-  assert.equal(averageScore(SEED_ROUNDS), 92.5);
+test('18ホールの全期間平均は93.8 / ベスト81 / ワースト105', () => {
+  const s = roundStats(SEED_ROUNDS);
+  assert.equal(s.count, 31);
+  assert.equal(s.averageScore, 93.8);
+  assert.equal(s.bestScore, 81);
+  assert.equal(s.worstScore, 105);
 });
 
-test('2026年の11ラウンド平均は約93.4', () => {
-  const rounds2026 = filterByYear(SEED_ROUNDS, 2026);
+test('9ホールのスコアは平均やベストに混ざらない', () => {
+  const s = roundStats(SEED_ROUNDS);
+  // 9Hのスコア（43〜55）がベストに入っていないこと
+  assert.ok(s.bestScore > 60, '9ホールのスコアがベストに混入している');
+  assert.equal(s.halfCount, 5);
+  // 推移グラフにも9Hは含めない
+  assert.equal(scoreSeries(SEED_ROUNDS).length, 31);
+});
+
+test('直近5ラウンド（18H）平均は92.6 / 平均パット38.6', () => {
+  const full = fullRounds(SEED_ROUNDS);
+  assert.equal(averageScore(recent(full, 5)), 92.6);
+  assert.equal(averagePutts(recent(full, 5)), 38.6);
+});
+
+/**
+ * 要件定義書9章の基礎集計値は 2025-09-28〜2026-08-12 の18ホール19ラウンドの値。
+ * ここが一致していれば、スクリーンショットからの転記が正しいと確認できる。
+ */
+test('要件定義書の集計値と一致する（2025-09-28〜2026-08-12の19ラウンド）', () => {
+  const window = fullRounds(SEED_ROUNDS).filter((r) => r.date >= '2025-09-28' && r.date <= '2026-08-12');
+  assert.equal(window.length, 19);
+  assert.equal(averageScore(window), 92.5);
+  assert.equal(Math.min(...window.map((r) => r.totalScore)), 87);
+  assert.equal(Math.max(...window.map((r) => r.totalScore)), 100);
+  assert.equal(averagePutts(window), 34.9);
+  assert.equal(averageScore(recent(window, 5)), 92.6);
+  assert.equal(averagePutts(recent(window, 5)), 38.6);
+
+  const rounds2026 = filterByYear(window, 2026);
   assert.equal(rounds2026.length, 11);
   assert.equal(averageScore(rounds2026), 93.4);
 });
 
-test('直近5ラウンド平均は92.6', () => {
-  assert.equal(averageScore(recent(SEED_ROUNDS, 5)), 92.6);
-});
-
-test('ベスト87 / ワースト100', () => {
-  const s = roundStats(SEED_ROUNDS);
-  assert.equal(s.bestScore, 87);
-  assert.equal(s.worstScore, 100);
-});
-
-test('平均パットは全期間34.9 / 直近5R 38.6', () => {
-  assert.equal(averagePutts(SEED_ROUNDS), 34.9);
-  assert.equal(averagePutts(recent(SEED_ROUNDS, 5)), 38.6);
-});
-
-test('パーオン率は全期間19.9% / 直近5R 31.1%', () => {
-  assert.equal(girRate(SEED_ROUNDS), 19.9);
-  assert.equal(girRate(recent(SEED_ROUNDS, 5)), 31.1);
-});
-
-test('ボギーオン率は全期間70.2% / 直近5R 76.7%', () => {
-  assert.equal(bogeyOnRate(SEED_ROUNDS), 70.2);
-  assert.equal(bogeyOnRate(recent(SEED_ROUNDS, 5)), 76.7);
-});
-
-test('ボギーオン（以内）はパーオン以上18以下', () => {
+test('未計測の項目は0ではなくnullで保持する', () => {
   for (const r of SEED_ROUNDS) {
-    assert.ok(r.bogeyOn >= r.greensInRegulation, `${r.id}: ボギーオン < パーオン`);
-    assert.ok(r.bogeyOn <= 18, `${r.id}: ボギーオンが18超`);
-    assert.ok(r.threePuttsAfterGIR <= r.greensInRegulation, `${r.id}: パーオン後3パットがパーオン数超`);
-    assert.ok(r.threePuttsAfterGIR <= r.threePutts, `${r.id}: パーオン後3パットが3パット数超`);
+    assert.equal(r.greensInRegulation, null, `${r.id}: パーオン数が0で埋められている`);
+    assert.equal(r.bogeyOn, null);
+    assert.equal(r.threePutts, null);
+    assert.equal(r.carryShorts, null);
+    assert.equal(r.tripleOrWorse, null);
+    assert.ok(Number.isFinite(r.totalScore) && Number.isFinite(r.putts), `${r.id}: スコアとパットは実数`);
   }
 });
 
-test('初期データの期間は2025-09-28〜2026-08-12', () => {
-  const dates = SEED_ROUNDS.map((r) => r.date).sort();
-  assert.equal(dates[0], '2025-09-28');
-  assert.equal(dates[dates.length - 1], '2026-08-12');
+test('パーオン率などは未入力なら0%ではなくnullを返す', () => {
+  assert.equal(girRate(SEED_ROUNDS), null);
+  assert.equal(bogeyOnRate(SEED_ROUNDS), null);
+  assert.equal(threePuttAfterGirRate(SEED_ROUNDS), null);
+  const s = roundStats(SEED_ROUNDS);
+  assert.equal(s.girRate, null);
+  assert.equal(s.averageTriple, null);
+  assert.equal(s.averageCarryShorts, null);
+});
+
+test('パーオン率は記録のあるラウンドだけで計算する', () => {
+  const mixed = [
+    { date: '2026-01-01', totalScore: 90, putts: 32, greensInRegulation: 5, holes: 18 },
+    { date: '2026-01-02', totalScore: 92, putts: 33, greensInRegulation: null, holes: 18 },
+    { date: '2026-01-03', totalScore: 45, putts: 17, greensInRegulation: 3, holes: 9 },
+  ];
+  // 18Hかつ記録ありの1件だけ → 5/18
+  assert.equal(girRate(mixed), 27.8);
+});
+
+test('OB・1ペナはGORAの値をそのまま保持する', () => {
+  const withOb = SEED_ROUNDS.filter((r) => r.penalties > 0);
+  assert.equal(withOb.length, 3);
+  assert.deepEqual(
+    withOb.map((r) => r.date),
+    ['2025-06-24', '2025-07-28', '2026-02-22']
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -263,7 +300,9 @@ test('新規スコアを足すと平均・ベスト・推移が再計算され�
     {
       id: 'u1',
       date: '2026-08-20',
-      totalScore: 83,
+      courseId: 'c-ube72',
+      holes: 18,
+      totalScore: 80,
       putts: 32,
       greensInRegulation: 8,
       bogeyOn: 15,
@@ -277,11 +316,14 @@ test('新規スコアを足すと平均・ベスト・推移が再計算され�
     },
   ];
   const s = roundStats(added);
-  assert.equal(s.count, 20);
-  assert.equal(s.bestScore, 83);
-  assert.ok(s.averageScore < 92.5);
-  assert.equal(scoreSeries(added).at(-1).value, 83);
-  assert.equal(movingAverage(scoreSeries(added), 3).length, 20);
+  assert.equal(s.count, 32);
+  assert.equal(s.bestScore, 80);
+  assert.ok(s.averageScore < 93.8);
+  // 1件だけ記録があればパーオン率も計算される
+  assert.equal(s.girRate, round1((8 / 18) * 100));
+  const series = scoreSeries(added);
+  assert.equal(series[series.length - 1].value, 80);
+  assert.equal(movingAverage(series, 3).length, 32);
 });
 
 // ---------------------------------------------------------------------------
@@ -313,25 +355,46 @@ test('想定スコア = コースレート + ハンディ × スロープ/113', 
   assert.equal(expectedScore(null, 128, 18), null);
 });
 
-test('初期19ラウンドにコースレートが紐づく', () => {
+test('全ラウンドがゴルフ場マスタに紐づく', () => {
   const enriched = withCourseContext(SEED_ROUNDS, SEED_COURSES);
-  assert.equal(enriched.length, 19);
-  assert.ok(enriched.every((r) => r.courseRate !== null), 'コースレート未解決のラウンドがある');
-  assert.ok(enriched.every((r) => r.differential !== null));
-  assert.ok(enriched.every((r) => r.par === 72));
+  assert.equal(enriched.length, 36);
+  assert.ok(
+    enriched.every((r) => SEED_COURSES.some((c) => c.id === r.courseId)),
+    'マスタに存在しないコースIDのラウンドがある'
+  );
+  assert.ok(enriched.every((r) => r.course.length > 0), 'コース名が空のラウンドがある');
 });
 
-test('ゴルフ場別の成績を集計する', () => {
+test('コースレート未登録のうちはディファレンシャルを出さない', () => {
+  const enriched = withCourseContext(SEED_ROUNDS, SEED_COURSES);
+  assert.ok(enriched.every((r) => r.differential === null));
+  assert.equal(estimateHandicap(enriched.map((r) => r.differential)), null);
+});
+
+test('コースレートを登録するとディファレンシャルが計算される', () => {
+  const courses = SEED_COURSES.map((c) =>
+    c.id === 'c-ube72' ? { ...c, par: 72, courseRate: 71.5, slopeRating: 125, verified: true } : c
+  );
+  const enriched = withCourseContext(SEED_ROUNDS, courses);
+  const ube = enriched.filter((r) => r.courseId === 'c-ube72' && r.holes === 18);
+  assert.ok(ube.every((r) => r.differential !== null));
+  // 9ホールは18ホール基準のコースレートと比較しない
+  const half = enriched.find((r) => r.courseId === 'c-ube72' && r.holes === 9);
+  assert.equal(half.differential, null);
+});
+
+test('ゴルフ場別の成績を集計する（9ホールは別カウント）', () => {
   const stats = courseStats(SEED_ROUNDS, SEED_COURSES);
-  assert.equal(stats.length, 5);
-  const toride = stats.find((c) => c.name === '取手国際ゴルフ倶楽部');
-  assert.equal(toride.count, 5); // 09-28, 11-23, 01-18, 06-07, 08-12
-  assert.equal(toride.best, 89);
-  assert.equal(toride.worst, 100);
-  assert.ok(toride.averageDifferential > 0);
-  // 直近と前回の差分が出る
-  assert.equal(toride.latest.totalScore, 89);
-  assert.equal(toride.latestDelta, 89 - 92);
+  assert.equal(stats.length, 18);
+  const ube = stats.find((c) => c.courseId === 'c-ube72');
+  assert.equal(ube.count, 5); // 18ホール5回
+  assert.equal(ube.halfCount, 1); // 2026-01-02 の9ホール
+  assert.equal(ube.best, 88);
+  assert.equal(ube.worst, 99);
+  assert.equal(ube.average, 93.2);
+  assert.equal(ube.latest.totalScore, 88); // 2025-11-29
+  assert.equal(ube.latestDelta, 88 - 98);
+  assert.equal(ube.averageGir, null); // 未入力は0にしない
 });
 
 // ---------------------------------------------------------------------------
@@ -349,23 +412,36 @@ function diagnose(overrides = {}) {
   });
 }
 
-test('診断：直近5ラウンドとコースレートを基準にした現在地を必ず出す', () => {
+test('診断：直近5ラウンドを基準にした現在地を必ず出す', () => {
   const d = diagnose();
   assert.equal(d.sample.recentCount, 5);
   assert.equal(d.sample.avgScore5, 92.6);
-  assert.ok(d.sample.avgDiff5 > 0);
-  assert.ok(d.sample.handicap !== null);
-  assert.equal(d.findings[0].key, 'baseline');
-  assert.match(d.findings[0].fact, /ディファレンシャル/);
+  assert.equal(d.sample.count, 31); // 9ホールは含めない
+  assert.equal(d.sample.halfCount, 5);
+  assert.equal(d.findings[0].area, '現在地');
+  // コースレート未登録なので、補正できないことを明示して登録を促す
+  assert.equal(d.findings[0].key, 'baseline-no-rate');
+  assert.ok(d.findings[0].dataNeeded.includes('course-rating'));
 });
 
-test('診断：パーオン後3パットが多ければ改善点として出し、判別できない点を明示する', () => {
+test('診断：コースレートを登録すると難易度補正した現在地に切り替わる', () => {
+  const courses = SEED_COURSES.map((c) => ({ ...c, par: 72, courseRate: 71.5, slopeRating: 125, verified: true }));
+  const d = diagnose({ courses });
+  assert.equal(d.findings[0].key, 'baseline');
+  assert.match(d.findings[0].fact, /ディファレンシャル/);
+  assert.ok(d.sample.avgDiff5 > 0);
+  assert.ok(d.sample.handicap !== null);
+});
+
+test('診断：パーオン数が未入力ならパット増加の原因を断定しない', () => {
   const d = diagnose();
-  const putting = d.findings.find((f) => f.key === 'three-putt-after-gir');
+  const putting = d.findings.find((f) => f.key === 'putts-up-unknown-cause');
   assert.ok(putting, 'パットの指摘がない');
-  assert.equal(putting.level, 'improve');
   assert.match(putting.reading, /判別できない/);
-  assert.ok(putting.dataNeeded.includes('first-putt-distance'));
+  assert.match(putting.reading, /悪化とは判断しない/);
+  assert.ok(putting.dataNeeded.includes('round-detail'));
+  // 断定できないので改善点ではなく観察として出す
+  assert.equal(putting.level, 'watch');
 });
 
 test('診断：改善点に対応する練習プラン変更案と計測データが出る', () => {
@@ -373,14 +449,23 @@ test('診断：改善点に対応する練習プラン変更案と計測デー�
   const plan = d.planChanges.find((p) => p.day === 4);
   assert.ok(plan, '木曜の変更案がない');
   assert.ok(plan.steps.length >= 2);
-  assert.match(plan.reason, /%/);
+  assert.ok(plan.reason.length > 0);
   assert.ok(d.dataRequests.some((r) => r.key === 'first-putt-distance'));
+  assert.ok(d.dataRequests.some((r) => r.key === 'round-detail'));
   assert.ok(d.dataRequests.every((r) => r.title && r.how && r.why));
 });
 
-test('診断：コースレートが仮の値なら気になるポイントで知らせる', () => {
+test('診断：未入力の項目とコースレート未登録を気になるポイントで知らせる', () => {
   const d = diagnose();
   assert.ok(d.watchPoints.some((w) => w.title.includes('コースレート')));
+  assert.ok(d.watchPoints.some((w) => w.title.includes('パーオン数')));
+  assert.ok(d.watchPoints.some((w) => w.title.includes('9ホール')));
+});
+
+test('診断：未入力の項目を0回として指摘しない', () => {
+  const d = diagnose();
+  const bogus = d.findings.filter((f) => ['carry-short', 'triple', 'penalty', 'gir-low'].includes(f.key));
+  assert.equal(bogus.length, 0, `未入力データを根拠にした指摘が出ている: ${bogus.map((f) => f.key).join(',')}`);
 });
 
 test('診断：ペナルティが0続きなら未入力の可能性を指摘する', () => {
@@ -435,17 +520,30 @@ test('診断：数値には必ず母数か期間が添えられる', () => {
 // ---------------------------------------------------------------------------
 
 test('予約：過去成績とコースレートから想定スコアを出す', () => {
+  const courses = SEED_COURSES.map((c) =>
+    c.id === 'c-ube72' ? { ...c, par: 72, courseRate: 71.5, slopeRating: 125, verified: true } : c
+  );
   const result = analyzeBooking({
-    booking: { date: '2026-09-06', courseId: 'c-toride', courseName: '取手国際ゴルフ倶楽部', tee: 'レギュラー' },
+    booking: { date: '2026-09-06', courseId: 'c-ube72', courseName: '宇部７２カントリークラブ', tee: 'レギュラー' },
     rounds: SEED_ROUNDS,
-    courses: SEED_COURSES,
+    courses,
     settings: { targetScore: 85 },
   });
   assert.equal(result.history.count, 5);
-  assert.ok(result.expectedScore > 80 && result.expectedScore < 105);
+  assert.ok(result.expectedScore > 80 && result.expectedScore < 110);
   assert.equal(result.targetRange.length, 2);
   assert.ok(result.notes.some((n) => n.includes('平均')));
-  assert.ok(result.notes.some((n) => n.includes('要確認')));
+});
+
+test('予約：コースレート未登録なら想定スコアを出さず登録を促す', () => {
+  const result = analyzeBooking({
+    booking: { date: '2026-09-06', courseId: 'c-ube72', courseName: '宇部７２カントリークラブ' },
+    rounds: SEED_ROUNDS,
+    courses: SEED_COURSES,
+  });
+  assert.equal(result.expectedScore, null);
+  assert.equal(result.targetRange, null);
+  assert.ok(result.notes.some((n) => n.includes('コースレートが未登録')));
 });
 
 test('予約：記録のないコースでも事前分析を返す', () => {

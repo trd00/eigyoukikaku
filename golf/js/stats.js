@@ -21,6 +21,29 @@ function avg(arr) {
   return arr.length ? sum(arr) / arr.length : 0;
 }
 
+/** null / undefined を除いた数値だけを取り出す（未入力と0を区別する） */
+export function values(rounds, key) {
+  return rounds.map((r) => r[key]).filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v)));
+}
+
+/** 平均。値が1つもなければ null */
+function avgOrNull(list) {
+  return list.length ? round1(avg(list)) : null;
+}
+
+/**
+ * 18ホールのラウンドだけを返す。
+ * ハーフ（9ホール）は平均スコアやパーオン率の分母に混ぜると数値が壊れるため、
+ * 集計からは外し、一覧には残す。holes未指定の記録は18ホールとして扱う。
+ */
+export function fullRounds(rounds) {
+  return rounds.filter((r) => (r.holes ?? 18) === 18);
+}
+
+export function halfRounds(rounds) {
+  return rounds.filter((r) => (r.holes ?? 18) !== 18);
+}
+
 /** 日付昇順に並べる（同日は登録順） */
 export function sortByDateAsc(rounds) {
   return [...rounds].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -113,21 +136,27 @@ export function recentPracticeRate({ startDate, records, today, days = 28 }) {
 
 const HOLES = 18;
 
+/** パーオン率。記録のあるラウンドだけで計算し、1件もなければ null */
 export function girRate(rounds) {
-  if (!rounds.length) return null;
-  return round1((sum(rounds.map((r) => r.greensInRegulation)) / (rounds.length * HOLES)) * 100);
+  const list = values(fullRounds(rounds), 'greensInRegulation');
+  if (!list.length) return null;
+  return round1((sum(list) / (list.length * HOLES)) * 100);
 }
 
 export function bogeyOnRate(rounds) {
-  if (!rounds.length) return null;
-  return round1((sum(rounds.map((r) => r.bogeyOn)) / (rounds.length * HOLES)) * 100);
+  const list = values(fullRounds(rounds), 'bogeyOn');
+  if (!list.length) return null;
+  return round1((sum(list) / (list.length * HOLES)) * 100);
 }
 
-/** パーオン後3パット率。パーオン数0なら null（表示なし） */
+/** パーオン後3パット率。パーオン数0または未入力なら null（表示なし） */
 export function threePuttAfterGirRate(rounds) {
-  const gir = sum(rounds.map((r) => r.greensInRegulation));
+  const withBoth = fullRounds(rounds).filter(
+    (r) => r.greensInRegulation !== null && r.greensInRegulation !== undefined && r.threePuttsAfterGIR !== null && r.threePuttsAfterGIR !== undefined
+  );
+  const gir = sum(withBoth.map((r) => r.greensInRegulation));
   if (!gir) return null;
-  return round1((sum(rounds.map((r) => r.threePuttsAfterGIR)) / gir) * 100);
+  return round1((sum(withBoth.map((r) => r.threePuttsAfterGIR)) / gir) * 100);
 }
 
 /** 直近 n ラウンド（日付昇順の末尾） */
@@ -137,27 +166,26 @@ export function recent(rounds, n) {
 }
 
 export function averageScore(rounds) {
-  if (!rounds.length) return null;
-  return round1(avg(rounds.map((r) => r.totalScore)));
+  return avgOrNull(values(fullRounds(rounds), 'totalScore'));
 }
 
 export function averagePutts(rounds) {
-  if (!rounds.length) return null;
-  return round1(avg(rounds.map((r) => r.putts)));
+  return avgOrNull(values(fullRounds(rounds), 'putts'));
 }
 
 /**
- * 分析画面で使う指標一式。
+ * 分析画面で使う指標一式。18ホールのラウンドだけを対象にする。
  * @param {Array} rounds
  */
 export function roundStats(rounds) {
-  const sorted = sortByDateAsc(rounds);
+  const sorted = sortByDateAsc(fullRounds(rounds));
   const last3 = recent(sorted, 3);
   const last5 = recent(sorted, 5);
-  const scores = sorted.map((r) => r.totalScore);
+  const scores = values(sorted, 'totalScore');
 
   return {
     count: sorted.length,
+    halfCount: halfRounds(rounds).length,
     averageScore: averageScore(sorted),
     averageLast3: last3.length ? averageScore(last3) : null,
     averageLast5: last5.length ? averageScore(last5) : null,
@@ -171,12 +199,12 @@ export function roundStats(rounds) {
     bogeyOnRateLast5: last5.length ? bogeyOnRate(last5) : null,
     threePuttAfterGirRate: threePuttAfterGirRate(sorted),
     threePuttAfterGirRateLast5: last5.length ? threePuttAfterGirRate(last5) : null,
-    averagePenalties: sorted.length ? round1(avg(sorted.map((r) => r.penalties))) : null,
-    averageTriple: sorted.length ? round1(avg(sorted.map((r) => r.tripleOrWorse))) : null,
-    averageThreePutts: sorted.length ? round1(avg(sorted.map((r) => r.threePutts))) : null,
-    averageCarryShorts: sorted.length ? round1(avg(sorted.map((r) => r.carryShorts))) : null,
-    averageShortSide: sorted.length ? round1(avg(sorted.map((r) => r.shortSideMisses))) : null,
-    averageStrategyErrors: sorted.length ? round1(avg(sorted.map((r) => r.strategyErrors))) : null,
+    averagePenalties: avgOrNull(values(sorted, 'penalties')),
+    averageTriple: avgOrNull(values(sorted, 'tripleOrWorse')),
+    averageThreePutts: avgOrNull(values(sorted, 'threePutts')),
+    averageCarryShorts: avgOrNull(values(sorted, 'carryShorts')),
+    averageShortSide: avgOrNull(values(sorted, 'shortSideMisses')),
+    averageStrategyErrors: avgOrNull(values(sorted, 'strategyErrors')),
   };
 }
 
@@ -185,20 +213,23 @@ export function filterByYear(rounds, year) {
   return rounds.filter((r) => r.date.startsWith(String(year)));
 }
 
-/** グラフ用の系列 */
+/** グラフ用の系列。18ホールかつ記録のあるラウンドだけ */
 export function scoreSeries(rounds) {
-  return sortByDateAsc(rounds).map((r) => ({ date: r.date, value: r.totalScore }));
+  return sortByDateAsc(fullRounds(rounds))
+    .filter((r) => r.totalScore != null)
+    .map((r) => ({ date: r.date, value: r.totalScore }));
 }
 
 export function girSeries(rounds) {
-  return sortByDateAsc(rounds).map((r) => ({
-    date: r.date,
-    value: round1((r.greensInRegulation / HOLES) * 100),
-  }));
+  return sortByDateAsc(fullRounds(rounds))
+    .filter((r) => r.greensInRegulation != null)
+    .map((r) => ({ date: r.date, value: round1((r.greensInRegulation / HOLES) * 100) }));
 }
 
 export function puttSeries(rounds) {
-  return sortByDateAsc(rounds).map((r) => ({ date: r.date, value: r.putts }));
+  return sortByDateAsc(fullRounds(rounds))
+    .filter((r) => r.putts != null)
+    .map((r) => ({ date: r.date, value: r.putts }));
 }
 
 /** 移動平均（3ラウンド）。推移グラフの補助線用 */
