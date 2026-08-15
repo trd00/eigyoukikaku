@@ -80,8 +80,8 @@ export function mergeStates(local, remote) {
       timeOf({ updatedAt: remote.planOverridesUpdatedAt }) > timeOf({ updatedAt: local.planOverridesUpdatedAt })
         ? remote.planOverridesUpdatedAt
         : local.planOverridesUpdatedAt,
-    // 履歴を引き継ぐ設定は、一度決めたら端末間で揃える
-    useSeedData: remote.useSeedData ?? local.useSeedData,
+    // 初期設定の完了状態は、どちらかで済んでいれば済みとして扱う
+    setupDone: local.setupDone || remote.setupDone || false,
     profileName: local.profileName || remote.profileName,
   };
 }

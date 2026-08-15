@@ -116,10 +116,12 @@ test('クラウド側が空でもローカルは消えない', () => {
   assert.equal(Object.keys(merged.daily).length, 1);
 });
 
-test('履歴を引き継ぐ設定は端末間で揃える', () => {
-  const local = { useSeedData: null, settings: {}, daily: {}, rounds: [] };
-  const remote = { useSeedData: false, settings: {}, daily: {}, rounds: [] };
-  assert.equal(mergeStates(local, remote).useSeedData, false);
+test('初期設定の完了状態は、どちらかで済んでいれば済みとして扱う', () => {
+  const local = { setupDone: false, settings: {}, daily: {}, rounds: [] };
+  const remote = { setupDone: true, settings: {}, daily: {}, rounds: [] };
+  assert.equal(mergeStates(local, remote).setupDone, true);
+  assert.equal(mergeStates(remote, local).setupDone, true);
+  assert.equal(mergeStates({ ...local }, { ...local }).setupDone, false);
 });
 
 test('練習プランの変更は新しい方の内容で置き換える', () => {

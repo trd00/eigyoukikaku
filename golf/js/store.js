@@ -1,7 +1,7 @@
 // localStorage永続化。端末内のみに保存し、外部へは送信しない（要件2.1/12）。
 // SSR/localStorage不可（プライベートモード等）でも例外で落ちないようにする（要件17）。
 
-import { SEED_CARRY, SEED_ROUNDS } from './seed.js';
+import { SEED_CARRY } from './seed.js';
 import { SEED_COURSES } from './courses.js';
 import { todayJST } from './date.js';
 
@@ -29,9 +29,8 @@ let memoryFallback = null;
 export function defaultState(today = todayJST()) {
   return {
     version: SCHEMA_VERSION,
-    // 誰のデータとして使うか。null＝初回の選択がまだ。
-    // true＝てらちゃんの履歴（初期36ラウンド）を引き継ぐ／false＝空から始める
-    useSeedData: null,
+    // 初期設定が済んでいるか。false なら起動時に設定画面を出す。
+    setupDone: false,
     profileName: '',
     settings: {
       startDate: today,
@@ -83,8 +82,8 @@ function migrate(raw) {
     planOverrides: raw.planOverrides && typeof raw.planOverrides === 'object' ? raw.planOverrides : {},
     planOverridesUpdatedAt: raw.planOverridesUpdatedAt || null,
     collectedData: raw.collectedData && typeof raw.collectedData === 'object' ? raw.collectedData : {},
-    // 既存の利用者（すでにデータがある端末）は初期履歴ありのまま維持する
-    useSeedData: raw.useSeedData === undefined || raw.useSeedData === null ? true : raw.useSeedData,
+    // 旧バージョンで利用者を選択済みの端末は、設定済みとして扱う
+    setupDone: raw.setupDone ?? (raw.useSeedData !== undefined && raw.useSeedData !== null),
     profileName: raw.profileName || '',
     cloudUid: raw.cloudUid || null,
     syncedAt: raw.syncedAt || null,
@@ -118,13 +117,9 @@ export function saveState(state) {
 /**
  * seedとユーザー追加ラウンドを同じ型で1本のリストにする（要件17）。
  */
+/** 表示・集計に使うラウンド一覧（すべて利用者自身の記録） */
 export function allRounds(state) {
-  const user = (state.rounds || []).map((r) => ({ ...r, source: r.source || 'user' }));
-  // 「空から始める」を選んだ利用者には、てらちゃんの初期履歴を混ぜない
-  if (state.useSeedData === false) return user;
-  const hidden = new Set(state.hiddenSeedIds || []);
-  const seeds = SEED_ROUNDS.filter((r) => !hidden.has(r.id));
-  return [...seeds, ...user];
+  return (state.rounds || []).map((r) => ({ ...r, source: r.source || 'user' }));
 }
 
 export function dailyList(state) {

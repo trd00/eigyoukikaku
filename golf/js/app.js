@@ -446,20 +446,13 @@ async function copyConsultPrompt() {
 // ---------------------------------------------------------------------------
 
 function updateSetupVisibility() {
-  const needsSetup = state.useSeedData === null || state.useSeedData === undefined;
+  const needsSetup = !state.setupDone;
   $('#setup').hidden = !needsSetup;
+  if (needsSetup) showSetupPage(setupPage);
   return needsSetup;
 }
 
-function chooseProfile(useSeed, name = '') {
-  state.useSeedData = useSeed;
-  state.profileName = name.trim();
-  persist(useSeed ? '履歴を引き継いで始めます' : '新しく記録を始めます');
-  $('#setup').hidden = true;
-  renderAll();
-}
-
-// --- 別の人が使う場合の初期設定（ウィザード） -------------------------------
+// --- 初期設定ウィザード -------------------------------
 
 const SETUP_PAGES = 6;
 let setupPage = 1;
@@ -568,7 +561,8 @@ function showSetupPage(page) {
   }
   $('#setup-step-label').textContent = `${setupPage} / ${SETUP_PAGES}`;
   $('#setup-next').textContent = setupPage === SETUP_PAGES ? 'この内容で始める' : '次へ';
-  $('#setup-back').textContent = setupPage === 1 ? '選び直す' : '戻る';
+  $('#setup-back').textContent = '戻る';
+  $('#setup-back').disabled = setupPage === 1;
   if (setupPage === 3) renderWeekdayPicker();
   if (setupPage === 4) renderFocusOptions();
   if (setupPage === 5) renderAdviceChoice();
@@ -601,12 +595,8 @@ function validateSetupPage() {
 
 function finishSetup() {
   const plan = buildSetupPlan();
-  state.useSeedData = false;
+  state.setupDone = true;
   state.profileName = setupAnswers.name;
-  // 空から始めるので、てらちゃんの実測キャリーは引き継がない
-  for (const club of Object.keys(state.carry || {})) {
-    state.carry[club] = stamp({ club, normalCarry: null, safeCarry: null, measuredAt: '', memo: '' });
-  }
   state.settings = stamp({
     ...state.settings,
     startDate: today,
@@ -1763,16 +1753,14 @@ function renderProfileStatus() {
   const toggle = $('#advice-toggle');
   if (toggle) toggle.checked = adviceEnabled();
   clear(wrap);
-  const name = state.profileName || (state.useSeedData ? 'てらちゃん' : '（名前未設定）');
+  const name = state.profileName || '（名前未設定）';
   const rounds = allRounds(state).length;
   wrap.appendChild(el('p', { class: 'cloud-name', text: name }));
   wrap.appendChild(
     el('p', {
       class: 'section-note',
       style: 'margin-top:4px',
-      text: state.useSeedData
-        ? `楽天GORAから取り込んだ履歴を含む ${rounds} ラウンドを表示しています。`
-        : `自分で登録した ${rounds} ラウンドだけを表示しています（初期履歴は含めていません）。`,
+      text: `登録済みのラウンドは ${rounds} 件です。記録はこの端末に保存され、他の人の画面には表示されません。`,
     })
   );
 }
@@ -2026,14 +2014,23 @@ function exportData() {
   toast('バックアップを書き出しました');
 }
 
-function importData(file) {
+function importData(file, { fromSetup = false } = {}) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const next = importJSON(String(reader.result));
-      if (!window.confirm('現在の入力データを読み込んだ内容で置き換えます。よろしいですか？')) return;
-      state = next;
-      persist('バックアップを読み込みました');
+      const incoming = importJSON(String(reader.result));
+      const count = (incoming.rounds || []).length;
+      if (
+        !fromSetup &&
+        !window.confirm(`バックアップの${count}ラウンドを取り込みます。今のデータと統合し、同じ記録は新しい方を残します。よろしいですか？`)
+      ) {
+        return;
+      }
+      // 置き換えではなく統合する（手元の入力が消えないようにする）
+      state = mergeStates(state, incoming);
+      state.setupDone = true;
+      persist(`バックアップから${count}ラウンドを取り込みました`);
+      $('#setup').hidden = true;
       renderAll();
     } catch (e) {
       toast('読み込めませんでした（ファイル形式を確認してください）', true);
@@ -2168,13 +2165,11 @@ function bindEvents() {
   });
 
   // 初回セットアップ
-  $('#setup-owner').addEventListener('click', () => chooseProfile(true, 'てらちゃん'));
-  $('#setup-new').addEventListener('click', () => {
-    $('#setup-wizard').hidden = false;
-    $('#setup-new').classList.add('selected');
-    $('#setup-owner').classList.remove('selected');
-    showSetupPage(1);
-    $('#setup-name').focus();
+  $('#setup-restore').addEventListener('click', () => $('#setup-restore-file').click());
+  $('#setup-restore-file').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) importData(file, { fromSetup: true });
+    e.target.value = '';
   });
   $('#setup-advice-on').addEventListener('click', () => {
     setupAnswers.adviceEnabled = true;
@@ -2204,18 +2199,15 @@ function bindEvents() {
   });
   $('#setup-back').addEventListener('click', () => {
     collectSetupPage();
-    if (setupPage === 1) {
-      $('#setup-wizard').hidden = true;
-      $('#setup-new').classList.remove('selected');
-      return;
-    }
+    if (setupPage === 1) return;
     showSetupPage(setupPage - 1);
   });
   $('#profile-reset').addEventListener('click', () => {
-    if (!window.confirm('利用者を選び直します。入力済みのデータはそのまま残ります。よろしいですか？')) return;
-    state.useSeedData = null;
+    if (!window.confirm('初期設定をやり直します。入力済みの記録はそのまま残ります。よろしいですか？')) return;
+    state.setupDone = false;
+    setupPage = 1;
+    setupAnswers.name = state.profileName || '';
     saveState(state);
-    $('#setup-name-field').hidden = true;
     updateSetupVisibility();
   });
 

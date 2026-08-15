@@ -5,15 +5,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { QUESTIONS, answerFor, buildConsultPrompt } from '../js/consult.js';
-import { SEED_ROUNDS } from '../js/seed.js';
-import { SEED_COURSES } from '../js/courses.js';
+import { ROUNDS_NO_DETAIL, ROUNDS_WITH_DETAIL, SAMPLE_COURSES } from './fixtures.mjs';
 import { roundStats, practiceStats } from '../js/stats.js';
 import { buildDiagnosis } from '../js/diagnose.js';
 import { buildWeeklyPlan, restDaysOf } from '../js/plan.js';
 
 const TODAY = '2026-08-14'; // 金曜
 
-function ctxFor({ rounds = SEED_ROUNDS, records = [], settings = {}, carry = {}, daily = {} } = {}) {
+function ctxFor({ rounds = ROUNDS_NO_DETAIL, records = [], settings = {}, carry = {}, daily = {} } = {}) {
   const state = {
     profileName: 'てらちゃん',
     settings: {
@@ -40,7 +39,7 @@ function ctxFor({ rounds = SEED_ROUNDS, records = [], settings = {}, carry = {},
     today: TODAY,
     stats: roundStats(rounds),
     practice,
-    diagnosis: buildDiagnosis({ rounds, courses: SEED_COURSES, practice, settings: state.settings }),
+    diagnosis: buildDiagnosis({ rounds, courses: SAMPLE_COURSES, practice, settings: state.settings }),
     booking: null,
   };
 }
@@ -81,8 +80,7 @@ test('パットの質問：パーオン未記録なら断定せず、判別で�
 });
 
 test('パットの質問：パーオンが記録されていれば率を示す', () => {
-  const rounds = SEED_ROUNDS.map((r) => ({ ...r, greensInRegulation: 5 }));
-  const lines = answerFor('putts', ctxFor({ rounds })).join('\n');
+  const lines = answerFor('putts', ctxFor({ rounds: ROUNDS_WITH_DETAIL })).join('\n');
   assert.match(lines, /パーオン率/);
 });
 
@@ -140,8 +138,8 @@ test('AIに渡す文章に、記録の要約と未記録の断りが入る', () 
   assert.match(prompt, /【聞きたいこと】/);
   // コースレート未登録であることを伝える
   assert.match(prompt, /コースレート：未登録/);
-  // 直近5ラウンドの実データが含まれる
-  assert.match(prompt, /2026-08-12/);
+  // 直近5ラウンドの内訳が含まれる
+  assert.match(prompt, /2025-08-03/);
 });
 
 test('AIに渡す文章は、記録が無くても生成できる', () => {

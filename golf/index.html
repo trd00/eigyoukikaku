@@ -706,24 +706,19 @@
     <div class="setup" id="setup" hidden>
       <div class="setup-inner">
         <p class="hero-label">TRD GOLF PROJECT</p>
-        <h2 class="setup-title">このアプリを誰が使いますか？</h2>
+        <h2 class="setup-title">はじめに</h2>
         <p class="setup-note">
-          あとから変更できます。データはこの端末に保存され、他の人の画面には出ません。
+          このアプリは、練習とスコアを自分で記録して育てていく形です。数問だけ設定させてください。あとから全部変更できます。
         </p>
-        <button class="setup-choice" id="setup-owner">
-          <span class="setup-choice-title">てらちゃん（本人）</span>
-          <span class="setup-choice-desc">
-            楽天GORAから取り込んだ36ラウンドの履歴と、番手別キャリーが入った状態で始めます。
-          </span>
+        <p class="setup-note">
+          記録はこの端末に保存され、他の人の画面には出ません。以前のバックアップがある場合は、下のボタンから復元できます。
+        </p>
+        <button class="btn-ghost btn-small" id="setup-restore" style="width: 100%; margin-bottom: 4px">
+          バックアップ（JSON）から復元する
         </button>
-        <button class="setup-choice" id="setup-new">
-          <span class="setup-choice-title">別の人が使う</span>
-          <span class="setup-choice-desc">
-            スコアも練習記録も空の状態から始めます。ゴルフ場の一覧だけ引き継ぎます。
-          </span>
-        </button>
-        <!-- 別の人が使う場合：本人用の初期設定 -->
-        <div id="setup-wizard" hidden>
+        <input type="file" id="setup-restore-file" accept="application/json,.json" hidden />
+
+        <div id="setup-wizard">
           <hr class="sep" />
           <p class="setup-step" id="setup-step-label">1 / 4</p>
 
