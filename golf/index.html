@@ -28,6 +28,14 @@
     -->
     <script>
       (function () {
+        // 自分のスクリプト以外で起きたエラーは表示しない。
+        // Safariの拡張機能や外部スクリプトのエラーは、ファイル名が空の
+        // 「Script error.」として届くため、これを除外する。
+        function isOurs(filename) {
+          if (!filename) return false;
+          return filename.indexOf(location.origin) === 0 || filename.charAt(0) === '/';
+        }
+
         function showError(text) {
           var box = document.getElementById('boot-error');
           if (!box) {
@@ -36,22 +44,50 @@
             box.setAttribute('role', 'alert');
             box.style.cssText =
               'position:fixed;left:0;right:0;top:0;z-index:999;background:#7a2a22;color:#ffe9e5;' +
-              'font:13px/1.5 -apple-system,sans-serif;padding:12px 14px;white-space:pre-wrap;word-break:break-word';
+              'font:13px/1.5 -apple-system,sans-serif;padding:12px 40px 12px 14px;white-space:pre-wrap;' +
+              'word-break:break-word';
+            var close = document.createElement('button');
+            close.textContent = '×';
+            close.setAttribute('aria-label', '閉じる');
+            close.style.cssText =
+              'position:absolute;top:6px;right:8px;width:32px;height:32px;border:none;background:none;' +
+              'color:#ffe9e5;font-size:22px;line-height:1';
+            close.onclick = function () {
+              box.remove();
+            };
+            var text_ = document.createElement('span');
+            text_.id = 'boot-error-text';
+            box.appendChild(text_);
+            box.appendChild(close);
             (document.body || document.documentElement).appendChild(box);
           }
-          box.textContent = 'アプリの読み込みでエラーが起きました。この文をそのまま送ってください。\n' + text;
+          document.getElementById('boot-error-text').textContent =
+            'アプリの読み込みでエラーが起きました。この文をそのまま送ってください。\n' + text;
         }
 
-        window.addEventListener('error', function (e) {
-          if (e.target && e.target.tagName === 'SCRIPT') {
-            showError('スクリプトを読み込めません: ' + (e.target.src || ''));
-            return;
-          }
-          if (e.message) showError(e.message + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
-        }, true);
+        window.addEventListener(
+          'error',
+          function (e) {
+            if (e.target && e.target.tagName === 'SCRIPT') {
+              var src = e.target.src || '';
+              // 自分のスクリプトが読めなかったときだけ知らせる
+              if (isOurs(src)) showError('スクリプトを読み込めません: ' + src);
+              return;
+            }
+            if (!e.message) return;
+            // 詳細が伏せられた外部エラーは無視する（アプリの動作には影響しない）
+            if (!isOurs(e.filename)) return;
+            showError(e.message + ' @ ' + e.filename + ':' + (e.lineno || ''));
+          },
+          true
+        );
 
         window.addEventListener('unhandledrejection', function (e) {
-          showError('処理エラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+          var reason = e.reason && e.reason.message ? e.reason.message : String(e.reason || '');
+          // 外部サービス（クラウド同期）への接続失敗は画面側で案内しているので出さない
+          if (!reason || reason.indexOf('Failed to fetch') >= 0 || reason.indexOf('NetworkError') >= 0) return;
+          if (window.__trdGolfReady) return;
+          showError('処理エラー: ' + reason);
         });
 
         // 起動できたかを確認する。app.js が動けば window.__trdGolfReady が立つ。
