@@ -24,6 +24,33 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * iOS Safariは同じ場所を素早く2回叩くと拡大する（ダブルタップズーム）。
+ * カウンターの＋／− を連打すると勝手にズームしてしまうため、
+ * 操作する要素ではその挙動を止める。ピンチ操作での拡大は残す。
+ */
+button,
+summary,
+label.step,
+label.focus-option,
+.tab,
+.cal-cell,
+.consult-chip,
+.weekday-btn,
+.setup-choice,
+.memo-item,
+.status-btn,
+input[type='checkbox'] {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 数値の増減は連打するため、選択・長押しメニューも抑える */
+.counter-controls button {
+  -webkit-touch-callout: none;
+}
+
 html,
 body {
   margin: 0;

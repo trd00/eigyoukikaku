@@ -502,7 +502,8 @@
         <section class="card" id="course-section">
           <p class="card-title">ゴルフ場（コースレート）</p>
           <p class="section-note" style="margin-top: 0">
-            コースレートとスロープを正しく入れるほど、難易度を補正した比較ができます。値はスコアカードまたは倶楽部の公式ページで確認できます。
+            コースレートは<strong>ご自身で登録</strong>します（アプリが自動で取得することはありません）。
+            よく行く3〜4コースだけ入れれば、難易度を補正した比較ができるようになります。
           </p>
           <div id="course-list-view"></div>
           <details class="group" id="course-form-group" style="margin-top: 10px">
@@ -537,6 +538,12 @@
                   <input type="number" id="co-slope" inputmode="numeric" min="55" max="155" />
                 </div>
               </div>
+              <p class="section-note" style="margin-top: 0">
+                値の調べ方：スコアカードの裏面、倶楽部の公式サイトの「コース概要」、楽天GORAのコース詳細ページのいずれかに、
+                ティーごとの数値（例：レギュラー 70.2 / スロープ 124）が載っています。
+                スロープが見つからない場合はコースレートだけでも構いません（113として計算します）。
+                分からなければ空欄のままで問題ありません。難易度の補正が入らないだけで、他の機能は使えます。
+              </p>
               <div class="field">
                 <label for="co-yards">全長（yd）</label>
                 <input type="number" id="co-yards" inputmode="numeric" min="3000" max="8000" />
