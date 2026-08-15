@@ -12,7 +12,7 @@ export const WEEKLY_MENU = [
   { day: 6, type: 'tune', title: '軽い確認', minutes: 10, minutesLabel: '10分', purpose: '日曜へ疲労を残さない' },
 ];
 
-/** 完全休養日（未実施の分母に含めない） */
+/** 完全休養日の初期値（未実施の分母に含めない）。利用者ごとに変更できる。 */
 export const REST_WEEKDAYS = [1];
 
 export function menuForWeekday(w) {
@@ -25,8 +25,9 @@ export function menuForWeekday(w) {
  * @param {number} w 曜日番号
  * @param {object} overrides {曜日番号: {title, minutes, purpose, steps}}
  */
-export function effectiveMenu(w, overrides = {}) {
-  const base = WEEKLY_MENU[w];
+export function effectiveMenu(w, overrides = {}, weeklyPlan = null) {
+  const custom = weeklyPlan?.[w] || weeklyPlan?.[String(w)];
+  const base = custom ? { ...WEEKLY_MENU[w], ...custom } : WEEKLY_MENU[w];
   const override = overrides?.[w] || overrides?.[String(w)];
   if (!override) return { ...base, customized: false };
   return {
@@ -40,14 +41,22 @@ export function effectiveMenu(w, overrides = {}) {
 }
 
 /** その曜日の実施項目（変更が適用されていればそちらを使う） */
-export function stepsForWeekday(w, overrides = {}) {
+export function stepsForWeekday(w, overrides = {}, weeklyPlan = null) {
   const override = overrides?.[w] || overrides?.[String(w)];
   if (override?.steps?.length) return override.steps;
+  const custom = weeklyPlan?.[w] || weeklyPlan?.[String(w)];
+  if (custom?.steps?.length) return custom.steps;
   return MENU_STEPS[WEEKLY_MENU[w].type] || [];
 }
 
-export function isRestWeekday(w) {
-  return REST_WEEKDAYS.includes(w);
+/**
+ * 完全休養日か。利用者が独自の週間メニューを持つ場合はその休養日を使う。
+ * @param {number} w 曜日番号
+ * @param {number[]|null} restWeekdays 利用者設定（未指定なら初期値）
+ */
+export function isRestWeekday(w, restWeekdays = null) {
+  const list = Array.isArray(restWeekdays) && restWeekdays.length ? restWeekdays : REST_WEEKDAYS;
+  return list.includes(w);
 }
 
 /** 曜日ごとの実施チェック項目 */

@@ -53,6 +53,7 @@ import {
 } from './store.js';
 import { CLUBS } from './seed.js';
 import * as cloud from './cloud.js';
+import { FOCUS_OPTIONS, buildWeeklyPlan, describePlan, restDaysOf } from './plan.js';
 import { mergeStates, stamp } from './merge.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -349,15 +350,152 @@ function updateSetupVisibility() {
 function chooseProfile(useSeed, name = '') {
   state.useSeedData = useSeed;
   state.profileName = name.trim();
-  if (!useSeed) {
-    // 空から始める場合は、てらちゃんの実測キャリーを引き継がない
-    for (const club of Object.keys(state.carry || {})) {
-      state.carry[club] = stamp({ club, normalCarry: null, safeCarry: null, measuredAt: '', memo: '' });
-    }
-    state.settings = stamp({ ...state.settings, startDate: today });
-  }
   persist(useSeed ? '履歴を引き継いで始めます' : '新しく記録を始めます');
   $('#setup').hidden = true;
+  renderAll();
+}
+
+// --- 別の人が使う場合の初期設定（ウィザード） -------------------------------
+
+const SETUP_PAGES = 5;
+let setupPage = 1;
+const setupAnswers = { name: '', currentAverage: null, targetScore: null, days: [], minutes: 15, rangeDay: null, focus: [] };
+
+function renderWeekdayPicker() {
+  const wrap = $('#setup-days');
+  clear(wrap);
+  WEEKDAY_LABELS.forEach((label, day) => {
+    wrap.appendChild(
+      el('button', {
+        type: 'button',
+        class: 'weekday-btn',
+        'aria-pressed': setupAnswers.days.includes(day) ? 'true' : 'false',
+        text: label,
+        onclick: (event) => {
+          const active = setupAnswers.days.includes(day);
+          setupAnswers.days = active ? setupAnswers.days.filter((d) => d !== day) : [...setupAnswers.days, day];
+          event.currentTarget.setAttribute('aria-pressed', active ? 'false' : 'true');
+        },
+      })
+    );
+  });
+}
+
+function renderFocusOptions() {
+  const wrap = $('#setup-focus');
+  clear(wrap);
+  for (const option of FOCUS_OPTIONS) {
+    const checked = setupAnswers.focus.includes(option.key);
+    const input = el('input', { type: 'checkbox', ...(checked ? { checked: 'checked' } : {}) });
+    const row = el('label', { class: `focus-option${checked ? ' checked' : ''}` }, [
+      input,
+      el('span', { text: option.label }),
+    ]);
+    // その場で見た目だけ切り替える（毎回描き直すと操作が中断されるため）
+    input.addEventListener('change', () => {
+      setupAnswers.focus = input.checked
+        ? [...new Set([...setupAnswers.focus, option.key])]
+        : setupAnswers.focus.filter((k) => k !== option.key);
+      row.classList.toggle('checked', input.checked);
+    });
+    wrap.appendChild(row);
+  }
+}
+
+function buildSetupPlan() {
+  return buildWeeklyPlan({
+    practiceDays: setupAnswers.days,
+    minutes: setupAnswers.minutes,
+    rangeDay: setupAnswers.rangeDay,
+    focus: setupAnswers.focus,
+  });
+}
+
+function renderSetupSummary() {
+  const wrap = $('#setup-summary');
+  clear(wrap);
+  const plan = buildSetupPlan();
+  wrap.appendChild(
+    el('p', {
+      class: 'section-note',
+      style: 'margin-top:0',
+      text: `${setupAnswers.name || '(名前未設定)'}／目標 ${setupAnswers.targetScore ?? '未設定'}${
+        setupAnswers.currentAverage ? `（今の平均 ${setupAnswers.currentAverage}）` : ''
+      }`,
+    })
+  );
+  for (const row of describePlan(plan)) {
+    wrap.appendChild(
+      el('div', { class: `plan-summary-row${row.type === 'rest' ? ' rest' : ''}` }, [
+        el('span', { class: 'plan-summary-day', text: row.label }),
+        el('span', { class: 'plan-summary-title', text: row.title }),
+        el('span', { class: 'plan-summary-min', text: row.minutesLabel }),
+      ])
+    );
+  }
+}
+
+function showSetupPage(page) {
+  setupPage = Math.min(Math.max(page, 1), SETUP_PAGES);
+  for (let i = 1; i <= SETUP_PAGES; i++) {
+    const node = $(`#setup-page-${i}`);
+    if (node) node.hidden = i !== setupPage;
+  }
+  $('#setup-step-label').textContent = `${setupPage} / ${SETUP_PAGES}`;
+  $('#setup-next').textContent = setupPage === SETUP_PAGES ? 'この内容で始める' : '次へ';
+  $('#setup-back').textContent = setupPage === 1 ? '選び直す' : '戻る';
+  if (setupPage === 3) renderWeekdayPicker();
+  if (setupPage === 4) renderFocusOptions();
+  if (setupPage === SETUP_PAGES) renderSetupSummary();
+}
+
+function collectSetupPage() {
+  if (setupPage === 1) setupAnswers.name = $('#setup-name').value.trim();
+  if (setupPage === 2) {
+    setupAnswers.currentAverage = $('#setup-current').value === '' ? null : num($('#setup-current').value);
+    setupAnswers.targetScore = $('#setup-target').value === '' ? null : num($('#setup-target').value);
+  }
+  if (setupPage === 3) {
+    setupAnswers.minutes = num($('#setup-minutes').value, 15);
+    setupAnswers.rangeDay = $('#setup-range').value === '' ? null : num($('#setup-range').value);
+  }
+}
+
+function validateSetupPage() {
+  if (setupPage === 1 && !setupAnswers.name) {
+    toast('お名前を入力してください', true);
+    return false;
+  }
+  if (setupPage === 3 && !setupAnswers.days.length && setupAnswers.rangeDay === null) {
+    toast('練習できる曜日を1つ以上選ぶか、打ちっぱなしの日を選んでください', true);
+    return false;
+  }
+  return true;
+}
+
+function finishSetup() {
+  const plan = buildSetupPlan();
+  state.useSeedData = false;
+  state.profileName = setupAnswers.name;
+  // 空から始めるので、てらちゃんの実測キャリーは引き継がない
+  for (const club of Object.keys(state.carry || {})) {
+    state.carry[club] = stamp({ club, normalCarry: null, safeCarry: null, measuredAt: '', memo: '' });
+  }
+  state.settings = stamp({
+    ...state.settings,
+    startDate: today,
+    targetScore: setupAnswers.targetScore ?? 90,
+    currentAverage: setupAnswers.currentAverage,
+    firstStageAverage: setupAnswers.currentAverage ?? state.settings.firstStageAverage,
+    practiceMinutes: setupAnswers.minutes,
+    focusAreas: setupAnswers.focus,
+    weeklyPlan: plan,
+    restWeekdays: restDaysOf(plan),
+  });
+  state.planOverrides = {};
+  persist(`${setupAnswers.name} さんの設定で始めます`);
+  $('#setup').hidden = true;
+  $('#setup-wizard').hidden = true;
   renderAll();
 }
 
@@ -425,7 +563,7 @@ function renderAll() {
 // ---------------------------------------------------------------------------
 
 function renderHome() {
-  const stats = practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today });
+  const stats = practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today, restWeekdays: state.settings.restWeekdays });
   const started = diffDays(today, state.settings.startDate) >= 0;
 
   $('#home-day').textContent = started ? String(stats.projectDay).padStart(3, '0') : '—';
@@ -437,7 +575,7 @@ function renderHome() {
   $('#home-rate').textContent = stats.achievementRate === null ? '—' : `${stats.achievementRate}%`;
 
   const w = weekday(today);
-  const menu = effectiveMenu(w, state.planOverrides);
+  const menu = effectiveMenu(w, state.planOverrides, state.settings.weeklyPlan);
   $('#home-weekday').textContent = WEEKDAY_LABELS[w];
   $('#home-today-label').textContent = `今日のメニュー（${formatShort(today)}）`;
   $('#home-menu-title').textContent = menu.title;
@@ -445,7 +583,7 @@ function renderHome() {
   const notes = [];
   if (menu.customized) notes.push('※ 診断からの変更を適用中');
   if (menu.type === 'strength') notes.push(STRENGTH_NOTE);
-  if (isRestWeekday(w)) notes.push('今日は完全休養日です。達成率の分母には入りません。');
+  if (isRestWeekday(w, state.settings.restWeekdays)) notes.push('今日は完全休養日です。達成率の分母には入りません。');
   $('#home-menu-note').textContent = notes.join(' ');
 
   renderSteps(w);
@@ -464,7 +602,7 @@ function renderHome() {
 function renderSteps(w) {
   const list = $('#home-steps');
   clear(list);
-  const steps = stepsForWeekday(w, state.planOverrides);
+  const steps = stepsForWeekday(w, state.planOverrides, state.settings.weeklyPlan);
   const menuType = menuForWeekday(w).type;
   const record = state.daily[today];
   const checked = record?.steps || [];
@@ -530,7 +668,7 @@ function diagnosisInput() {
   return {
     rounds: allRounds(state),
     courses: courseList(state),
-    practice: practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today }),
+    practice: practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today, restWeekdays: state.settings.restWeekdays }),
     rangeStats: rangeSessionStats(rangeList(state)),
     settings: state.settings,
   };
@@ -658,7 +796,7 @@ function statusForDate(date) {
   if (record?.status) return record.status;
   if (diffDays(date, state.settings.startDate) < 0) return null; // 開始前
   if (diffDays(date, today) > 0) return null; // 未来日は記録扱いしない
-  if (isRestWeekday(weekday(date))) return 'rest';
+  if (isRestWeekday(weekday(date), state.settings.restWeekdays)) return 'rest';
   if (diffDays(today, date) > 0) return 'missed'; // 過去日の未記録は未実施
   return null;
 }
@@ -712,6 +850,7 @@ function renderCalendar() {
     today,
     from: toISO(y, m, 1),
     to: toISO(y, m, total),
+    restWeekdays: state.settings.restWeekdays,
   });
   $('#cal-done').textContent = monthStats.doneDays;
   $('#cal-missed').textContent = monthStats.missedDays;
@@ -1402,7 +1541,7 @@ function kpi(label, value, sub = '') {
 function renderAnalysis() {
   const rounds = allRounds(state);
   const stats = roundStats(rounds);
-  const practice = practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today });
+  const practice = practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today, restWeekdays: state.settings.restWeekdays });
 
   renderDiagnosis();
 
@@ -1455,7 +1594,13 @@ function renderAnalysis() {
 
   const practiceKpi = $('#an-practice-kpi');
   clear(practiceKpi);
-  const rate28 = recentPracticeRate({ startDate: state.settings.startDate, records: dailyList(state), today, days: 28 });
+  const rate28 = recentPracticeRate({
+    startDate: state.settings.startDate,
+    records: dailyList(state),
+    today,
+    days: 28,
+    restWeekdays: state.settings.restWeekdays,
+  });
   [
     kpi('練習実施率', practice.achievementRate === null ? '—' : `${practice.achievementRate}%`, '全期間'),
     kpi('練習実施率', rate28 === null ? '—' : `${rate28}%`, '直近28日'),
@@ -1539,7 +1684,7 @@ function renderPlanChanges(changes) {
   }
 
   for (const change of changes) {
-    const base = menuForWeekday(change.day);
+    const base = effectiveMenu(change.day, {}, state.settings.weeklyPlan);
     const isApplied = !!applied[change.day] && applied[change.day].title === change.title;
     wrap.appendChild(
       el('div', { class: 'plan-change' }, [
@@ -1677,6 +1822,7 @@ function renderPracticeScoreRelation() {
       today,
       from,
       to: addDays(round.date, -1),
+      restWeekdays: state.settings.restWeekdays,
     });
     if (stats.achievementRate === null) continue;
     points.push({ date: round.date, rate: stats.achievementRate, score: round.totalScore });
@@ -1853,12 +1999,27 @@ function bindEvents() {
   // 初回セットアップ
   $('#setup-owner').addEventListener('click', () => chooseProfile(true, 'てらちゃん'));
   $('#setup-new').addEventListener('click', () => {
-    $('#setup-name-field').hidden = false;
+    $('#setup-wizard').hidden = false;
     $('#setup-new').classList.add('selected');
     $('#setup-owner').classList.remove('selected');
+    showSetupPage(1);
     $('#setup-name').focus();
   });
-  $('#setup-start').addEventListener('click', () => chooseProfile(false, $('#setup-name').value));
+  $('#setup-next').addEventListener('click', () => {
+    collectSetupPage();
+    if (!validateSetupPage()) return;
+    if (setupPage === SETUP_PAGES) finishSetup();
+    else showSetupPage(setupPage + 1);
+  });
+  $('#setup-back').addEventListener('click', () => {
+    collectSetupPage();
+    if (setupPage === 1) {
+      $('#setup-wizard').hidden = true;
+      $('#setup-new').classList.remove('selected');
+      return;
+    }
+    showSetupPage(setupPage - 1);
+  });
   $('#profile-reset').addEventListener('click', () => {
     if (!window.confirm('利用者を選び直します。入力済みのデータはそのまま残ります。よろしいですか？')) return;
     state.useSeedData = null;

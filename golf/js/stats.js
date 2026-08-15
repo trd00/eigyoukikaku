@@ -74,7 +74,7 @@ export function indexDailyRecords(records) {
  * today は「当日を自動未実施にしない」判定に使う実際の今日。
  * @param {{startDate:string, records:Array, today:string, from?:string, to?:string}} params
  */
-export function practiceStats({ startDate, records, today, from, to }) {
+export function practiceStats({ startDate, records, today, from, to, restWeekdays = null }) {
   const byDate = indexDailyRecords(records);
   const elapsed = projectDay(startDate, today); // 開始日当日=1
 
@@ -90,7 +90,7 @@ export function practiceStats({ startDate, records, today, from, to }) {
       const rec = byDate.get(date);
       const status = rec ? rec.status : null;
       const isToday = date === today;
-      const restDay = isRestWeekday(weekday(date));
+      const restDay = isRestWeekday(weekday(date), restWeekdays);
 
       if (status === 'done' || status === 'partial') {
         doneDays++;
@@ -122,11 +122,11 @@ export function practiceStats({ startDate, records, today, from, to }) {
 /**
  * 直近 n 日間の実施率（助言ロジック用）。
  */
-export function recentPracticeRate({ startDate, records, today, days = 28 }) {
+export function recentPracticeRate({ startDate, records, today, days = 28, restWeekdays = null }) {
   const from = addDays(today, -(days - 1));
   const start = diffDays(from, startDate) > 0 ? from : startDate;
   if (diffDays(today, start) < 0) return null;
-  const stats = practiceStats({ startDate: start, records, today });
+  const stats = practiceStats({ startDate: start, records, today, restWeekdays });
   return stats.achievementRate;
 }
 

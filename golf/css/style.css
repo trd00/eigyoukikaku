@@ -1030,6 +1030,108 @@ details.group > .group-body {
   line-height: 1.5;
 }
 
+.setup-step {
+  font-size: 12px;
+  color: var(--lime);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin: 0 0 6px;
+}
+
+.setup-heading {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+.weekday-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.weekday-btn {
+  min-height: 52px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--off);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0;
+}
+
+.weekday-btn[aria-pressed='true'] {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #10261a;
+}
+
+.focus-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.focus-option input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--lime-dark);
+  flex: 0 0 22px;
+}
+
+.focus-option.checked {
+  border-color: var(--lime-dark);
+}
+
+.plan-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(41, 70, 96, 0.6);
+  font-size: 14px;
+}
+
+.plan-summary-row:last-child {
+  border-bottom: none;
+}
+
+.plan-summary-day {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
+  background: var(--lime);
+  color: #10261a;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.plan-summary-row.rest .plan-summary-day {
+  background: var(--rest-color);
+  color: #0b1622;
+}
+
+.plan-summary-title {
+  flex: 1 1 auto;
+}
+
+.plan-summary-min {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
 /* ---------- クラウド ---------- */
 .cloud-user {
   display: flex;

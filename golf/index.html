@@ -687,10 +687,80 @@
             スコアも練習記録も空の状態から始めます。ゴルフ場の一覧だけ引き継ぎます。
           </span>
         </button>
-        <div class="field" id="setup-name-field" hidden>
-          <label for="setup-name">お名前（分析の表示に使います）</label>
-          <input type="text" id="setup-name" placeholder="例：お兄さん" />
-          <button class="btn-primary" id="setup-start" style="width: 100%; margin-top: 10px">始める</button>
+        <!-- 別の人が使う場合：本人用の初期設定 -->
+        <div id="setup-wizard" hidden>
+          <hr class="sep" />
+          <p class="setup-step" id="setup-step-label">1 / 4</p>
+
+          <div class="setup-page" id="setup-page-1">
+            <h3 class="setup-heading">お名前</h3>
+            <div class="field">
+              <label for="setup-name">分析画面に表示されます</label>
+              <input type="text" id="setup-name" placeholder="例：お兄さん" />
+            </div>
+          </div>
+
+          <div class="setup-page" id="setup-page-2" hidden>
+            <h3 class="setup-heading">スコアの目安</h3>
+            <p class="setup-note">分からなければ空欄のままで大丈夫です。あとから変えられます。</p>
+            <div class="field-row">
+              <div class="field">
+                <label for="setup-current">今の平均スコア</label>
+                <input type="number" id="setup-current" inputmode="numeric" min="60" max="160" placeholder="例：100" />
+              </div>
+              <div class="field">
+                <label for="setup-target">目標スコア</label>
+                <input type="number" id="setup-target" inputmode="numeric" min="60" max="160" placeholder="例：90" />
+              </div>
+            </div>
+          </div>
+
+          <div class="setup-page" id="setup-page-3" hidden>
+            <h3 class="setup-heading">練習できる曜日</h3>
+            <p class="setup-note">選ばなかった曜日は休養日になり、達成率の計算に入りません。</p>
+            <div class="weekday-picker" id="setup-days"></div>
+            <div class="field-row" style="margin-top: 12px">
+              <div class="field">
+                <label for="setup-minutes">1回の時間</label>
+                <select id="setup-minutes">
+                  <option value="10">10分</option>
+                  <option value="15" selected>15分</option>
+                  <option value="20">20分</option>
+                  <option value="30">30分</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="setup-range">打ちっぱなしに行く日</label>
+                <select id="setup-range">
+                  <option value="">行かない・不定期</option>
+                  <option value="0">日曜</option>
+                  <option value="1">月曜</option>
+                  <option value="2">火曜</option>
+                  <option value="3">水曜</option>
+                  <option value="4">木曜</option>
+                  <option value="5">金曜</option>
+                  <option value="6">土曜</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="setup-page" id="setup-page-4" hidden>
+            <h3 class="setup-heading">今の課題</h3>
+            <p class="setup-note">当てはまるものを選びます（複数可）。練習メニューの中身が変わります。</p>
+            <div id="setup-focus"></div>
+          </div>
+
+          <div class="setup-page" id="setup-page-5" hidden>
+            <h3 class="setup-heading">この内容で始めます</h3>
+            <div id="setup-summary"></div>
+            <p class="setup-note">週間メニューは、あとから分析画面の診断に応じて変更できます。</p>
+          </div>
+
+          <div class="btn-row" style="margin-top: 14px">
+            <button class="btn-ghost" id="setup-back">戻る</button>
+            <button class="btn-primary" id="setup-next">次へ</button>
+          </div>
         </div>
       </div>
     </div>

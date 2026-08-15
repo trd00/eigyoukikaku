@@ -74,13 +74,18 @@ golf/
 │   ├── diagnose.js         診断エンジン（コースレート補正・改善点・計測依頼）
 │   ├── courses.js          ゴルフ場マスタ
 │   ├── date.js             JST基準の日付計算
-│   ├── menu.js             週間メニュー定義
-│   ├── seed.js             初期19ラウンド＋初期キャリー
+│   ├── menu.js             週間メニュー定義（既定＝てらちゃん用）
+│   ├── plan.js             利用者ごとの週間メニュー生成
+│   ├── cloud.js            Googleログイン／クラウド保存
+│   ├── merge.js            端末間データの統合
+│   ├── seed.js             初期36ラウンド（GORA実データ）＋初期キャリー
 │   ├── store.js            localStorage永続化（SSR安全）
 │   └── chart.js            SVG折れ線・散布図（外部ライブラリ不使用）
 ├── manifest.webmanifest    PWA
 ├── sw.js                   オフライン起動用Service Worker
-└── test/stats.test.mjs     集計ロジックのテスト
+├── firestore.rules         クラウドの保護ルール
+├── CLOUD_SETUP.md          クラウド同期の設定手順
+└── test/                   集計・統合・メニュー生成のテスト
 ```
 
 ローカル確認：
@@ -92,7 +97,7 @@ cd golf && python3 -m http.server 8123   # http://127.0.0.1:8123/
 テスト：
 
 ```bash
-node --test golf/test/stats.test.mjs
+node --test golf/test/*.mjs
 ```
 
 ## 公開（GitHub Pages）
@@ -106,6 +111,8 @@ node --test golf/test/stats.test.mjs
 ## クラウド同期と複数人での利用
 
 - 初回起動時に「てらちゃん（履歴あり）」「別の人が使う（空から）」を選びます。選択は分析タブから変更できます
+- 「別の人が使う」を選ぶと、5ステップの初期設定に進みます（名前 → 目標スコア → 練習できる曜日と時間 → 課題 → 確認）。
+  回答から週間メニューを組み立て、選ばなかった曜日は休養日として達成率の分母から外します
 - Googleログインを設定すると、機種変更や2台目の端末でも同じデータを使えます。設定手順は `CLOUD_SETUP.md`
 - アカウントが違えばデータは完全に分かれます（保護ルールは `firestore.rules`）
 - 2台で別々に編集した場合、項目ごとに新しい方を採用して統合します。片方の入力が丸ごと消えることはありません

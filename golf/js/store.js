@@ -37,6 +37,12 @@ export function defaultState(today = todayJST()) {
       startDate: today,
       targetScore: 85,
       firstStageAverage: 92,
+      // 利用者ごとの週間メニュー。null なら menu.js の既定（てらちゃん用）を使う
+      weeklyPlan: null,
+      restWeekdays: [1],
+      focusAreas: [],
+      currentAverage: null,
+      practiceMinutes: 15,
     },
     daily: {},
     carry: SEED_CARRY.reduce((acc, c) => {
