@@ -19,7 +19,6 @@ import {
   SUNDAY_DRILL,
   effectiveMenu,
   isRestWeekday,
-  menuForWeekday,
   stepsForWeekday,
 } from './menu.js';
 import {
@@ -55,6 +54,7 @@ import { CLUBS } from './seed.js';
 import * as cloud from './cloud.js';
 import { FOCUS_OPTIONS, buildWeeklyPlan, describePlan, restDaysOf } from './plan.js';
 import { QUESTIONS, answerFor, buildConsultPrompt } from './consult.js';
+import { memoFeedback } from './feedback.js';
 import { mergeStates, stamp } from './merge.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -629,12 +629,13 @@ function fmt(value, unit = '', digits = 1) {
 
 function ensureDaily(date) {
   if (!state.daily[date]) {
+    const menu = effectiveMenu(weekday(date), state.planOverrides, state.settings.weeklyPlan);
     state.daily[date] = {
       id: newId('d'),
       date,
-      menuType: menuForWeekday(weekday(date)).type,
+      menuType: menu.type,
       status: null,
-      minutes: menuForWeekday(weekday(date)).minutes,
+      minutes: menu.minutes,
       steps: [],
       memo: '',
     };
@@ -710,6 +711,7 @@ function renderHome() {
   $('#home-fatigue').value = record?.fatigue ? String(record.fatigue) : '';
   $('#home-pain').value = record?.pain || 'none';
   $('#home-memo').value = record?.memo || '';
+  clear($('#home-memo-feedback'));
 
   renderHomeBooking();
   renderHomeAdvice();
@@ -720,7 +722,7 @@ function renderSteps(w) {
   const list = $('#home-steps');
   clear(list);
   const steps = stepsForWeekday(w, state.planOverrides, state.settings.weeklyPlan);
-  const menuType = menuForWeekday(w).type;
+  const menuType = effectiveMenu(w, state.planOverrides, state.settings.weeklyPlan).type;
   const record = state.daily[today];
   const checked = record?.steps || [];
 
@@ -773,7 +775,7 @@ function renderStatusButtons() {
 function setStatus(date, status) {
   const rec = ensureDaily(date);
   rec.status = status;
-  rec.menuType = menuForWeekday(weekday(date)).type;
+  rec.menuType = effectiveMenu(weekday(date), state.planOverrides, state.settings.weeklyPlan).type;
   state.daily[date] = stamp(rec);
   persist(`${formatShort(date)} を「${STATUS_LABELS[status]}」で記録しました`);
   renderAll();
@@ -853,6 +855,42 @@ function renderHomeAdvice() {
       },
     })
   );
+}
+
+/** メモを保存したときの応答。どこに保存されたかも必ず伝える。 */
+function renderMemoFeedback(record) {
+  const wrap = $('#home-memo-feedback');
+  if (!wrap) return;
+  clear(wrap);
+
+  const { headline, lines } = memoFeedback({
+    memo: record.memo,
+    record,
+    settings: state.settings,
+    records: dailyList(state),
+    today,
+  });
+
+  const box = el('div', { class: 'feedback' }, [el('p', { class: 'feedback-head', text: headline })]);
+  for (const line of lines) box.appendChild(el('p', { text: line }));
+  box.appendChild(
+    el('p', {
+      class: 'section-note',
+      style: 'margin-top:8px',
+      text: `保存先：記録タブの「最近のメモ」と、カレンダーの${formatShort(today)}です。`,
+    })
+  );
+  box.appendChild(
+    el('button', {
+      class: 'btn-small',
+      style: 'width:100%;margin-top:8px',
+      text: '記録タブでメモを見る',
+      onclick: () => {
+        location.hash = 'calendar';
+      },
+    })
+  );
+  wrap.appendChild(box);
 }
 
 function renderHomeBooking() {
@@ -972,6 +1010,7 @@ function renderCalendar() {
         [
           el('span', { class: 'd', text: String(d) }),
           el('span', { class: 'm', text: status ? STATUS_MARKS[status] : '' }),
+          state.daily[date]?.memo ? el('span', { class: 'memo-dot' }) : null,
         ]
       )
     );
@@ -989,9 +1028,52 @@ function renderCalendar() {
   $('#cal-missed').textContent = monthStats.missedDays;
   $('#cal-rate').textContent = monthStats.achievementRate === null ? '—' : `${monthStats.achievementRate}%`;
 
+  renderMemoList();
+
   $('#set-start').value = state.settings.startDate;
   $('#set-target').value = state.settings.targetScore;
   $('#set-first').value = state.settings.firstStageAverage;
+}
+
+/** 記録タブのメモ一覧。保存したメモを見返せる場所。 */
+function renderMemoList() {
+  const wrap = $('#memo-list');
+  if (!wrap) return;
+  clear(wrap);
+
+  const items = dailyList(state)
+    .filter((r) => (r.memo || '').trim())
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  $('#memo-count').textContent = `${items.length}件`;
+  if (!items.length) {
+    wrap.appendChild(
+      el('p', {
+        class: 'empty',
+        text: 'メモはまだありません。ホーム画面の「メモ・疲労度・痛みを記録する」から書けます。',
+      })
+    );
+    return;
+  }
+
+  for (const item of items.slice(0, 30)) {
+    const w = weekday(item.date);
+    const menu = effectiveMenu(w, state.planOverrides, state.settings.weeklyPlan);
+    const status = item.status || 'none';
+    wrap.appendChild(
+      el('button', { class: 'memo-item', onclick: () => openSheet(item.date) }, [
+        el('div', { class: 'memo-item-head' }, [
+          el('span', { class: `memo-mark ${status}`, text: STATUS_MARKS[status] || '·' }),
+          el('span', { class: 'memo-date', text: formatShort(item.date) }),
+          el('span', { class: 'memo-menu', text: menu.title }),
+        ]),
+        el('span', { class: 'memo-text', text: item.memo }),
+      ])
+    );
+  }
+  if (items.length > 30) {
+    wrap.appendChild(el('p', { class: 'section-note', text: `他 ${items.length - 30} 件はカレンダーから見られます。` }));
+  }
 }
 
 function openSheet(date) {
@@ -1009,7 +1091,7 @@ function closeSheet() {
 
 function renderSheet() {
   if (!sheetDate) return;
-  const menu = menuForWeekday(weekday(sheetDate));
+  const menu = effectiveMenu(weekday(sheetDate), state.planOverrides, state.settings.weeklyPlan);
   $('#sheet-title').textContent = `${formatLong(sheetDate)}／${menu.title}`;
   const wrap = $('#sheet-status');
   clear(wrap);
@@ -1074,7 +1156,7 @@ function renderPractice() {
   $('#rng-date').max = today;
   if (!sessionDraft || sessionDraft.date !== practiceDate) sessionDraft = currentSession();
 
-  const menu = menuForWeekday(weekday(practiceDate));
+  const menu = effectiveMenu(weekday(practiceDate), state.planOverrides, state.settings.weeklyPlan);
   $('#rng-menu-note').textContent = `${formatShort(practiceDate)} は「${menu.title}」の日です。${
     menu.type === 'range' ? '80球メニューの結果を記録します。' : '打ちっぱなしを行った日だけ記録すれば十分です。'
   }`;
@@ -2066,6 +2148,7 @@ function bindEvents() {
     rec.memo = $('#home-memo').value.trim();
     state.daily[today] = stamp(rec);
     persist('メモを保存しました');
+    renderMemoFeedback(state.daily[today]);
   });
 
   $('#cal-prev').addEventListener('click', () => {

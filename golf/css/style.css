@@ -966,6 +966,119 @@ details.group > .group-body {
   color: var(--lime);
 }
 
+/* ---------- メモへの応答・メモ一覧 ---------- */
+.feedback {
+  margin-top: 12px;
+  border: 1px solid var(--lime-dark);
+  background: rgba(200, 245, 66, 0.07);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.feedback-head {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--lime);
+  margin: 0 0 6px;
+}
+
+.feedback p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #d6e2ec;
+}
+
+.feedback p:last-child {
+  margin-bottom: 0;
+}
+
+.memo-item {
+  width: 100%;
+  text-align: left;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  min-height: 0;
+}
+
+.memo-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.memo-mark {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  background: var(--card);
+  color: var(--muted);
+}
+
+.memo-mark.done {
+  background: var(--done);
+  color: #10261a;
+}
+
+.memo-mark.partial {
+  background: var(--partial);
+  color: #2b2110;
+}
+
+.memo-mark.rest {
+  background: var(--rest-color);
+  color: #0b1622;
+}
+
+.memo-mark.missed {
+  background: var(--missed);
+  color: #2b0f0b;
+}
+
+.memo-date {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1 1 auto;
+}
+
+.memo-menu {
+  font-size: 11px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.memo-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--off);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-weight: 400;
+}
+
+.cal-cell .memo-dot {
+  position: absolute;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.cal-cell {
+  position: relative;
+}
+
 /* ---------- 相談画面 ---------- */
 .consult {
   position: fixed;

@@ -178,6 +178,7 @@
                 <textarea id="home-memo" placeholder="良かった感覚・気づき"></textarea>
               </div>
               <button class="btn-primary" id="home-memo-save">メモを保存</button>
+              <div id="home-memo-feedback"></div>
             </div>
           </details>
         </section>
@@ -244,6 +245,14 @@
             </div>
           </div>
           <p class="section-note">月曜（完全休養）は達成率の分母に含めません。</p>
+        </section>
+
+        <section class="card">
+          <p class="card-title">
+            <span>最近のメモ</span>
+            <span class="chip" id="memo-count">0件</span>
+          </p>
+          <div id="memo-list"></div>
         </section>
 
         <section class="card">
