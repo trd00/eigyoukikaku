@@ -26,9 +26,13 @@
 
 /*
  * iOS Safariは同じ場所を素早く2回叩くと拡大する（ダブルタップズーム）。
- * カウンターの＋／− を連打すると勝手にズームしてしまうため、
- * 操作する要素ではその挙動を止める。ピンチ操作での拡大は残す。
+ * 要素を個別に指定すると、ボタンの縁や余白を叩いたときに効かないため、
+ * ページ全体で無効にする。指2本でのピンチ拡大は manipulation でも残る。
  */
+* {
+  touch-action: manipulation;
+}
+
 button,
 summary,
 label.step,
@@ -39,15 +43,9 @@ label.focus-option,
 .weekday-btn,
 .setup-choice,
 .memo-item,
-.status-btn,
-input[type='checkbox'] {
-  touch-action: manipulation;
+.status-btn {
   user-select: none;
   -webkit-user-select: none;
-}
-
-/* 数値の増減は連打するため、選択・長押しメニューも抑える */
-.counter-controls button {
   -webkit-touch-callout: none;
 }
 
@@ -759,11 +757,31 @@ details.group > .group-body {
 }
 
 .counter-value {
-  min-width: 34px;
+  width: 54px;
+  min-width: 54px;
+  min-height: 44px;
   text-align: center;
   font-size: 20px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  background: var(--navy-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--off);
+  padding: 4px;
+  /* iOSで入力時に拡大しないよう16px以上を保つ */
+}
+
+.counter-value:focus {
+  outline: 2px solid var(--lime-dark);
+  border-color: var(--lime-dark);
+}
+
+/* 数字入力の上下ボタンは出さない（±ボタンがあるため） */
+.counter-value::-webkit-outer-spin-button,
+.counter-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* ---------- キャリー表 ---------- */

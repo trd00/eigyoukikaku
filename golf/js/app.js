@@ -1229,23 +1229,67 @@ function renderPractice() {
 function renderCounters(wrap, fields) {
   clear(wrap);
   for (const field of fields) {
-    const value = el('span', { class: 'counter-value', text: String(sessionDraft[field.key] ?? 0) });
+    // 数値は直接入力もできる（8球なら8回叩かずに済むように）
+    const value = el('input', {
+      class: 'counter-value',
+      type: 'number',
+      inputmode: 'numeric',
+      min: '0',
+      max: '999',
+      value: String(sessionDraft[field.key] ?? 0),
+      'aria-label': `${field.label}の球数`,
+    });
+    value.addEventListener('input', () => {
+      sessionDraft[field.key] = Math.max(0, num(value.value));
+    });
+    value.addEventListener('blur', () => {
+      value.value = String(sessionDraft[field.key] ?? 0);
+    });
+
     const update = (delta) => {
       const next = Math.max(0, num(sessionDraft[field.key]) + delta);
       sessionDraft[field.key] = next;
-      value.textContent = String(next);
+      value.value = String(next);
     };
+
     wrap.appendChild(
       el('div', { class: 'counter' }, [
         el('span', { class: 'counter-label', text: field.label }),
         el('span', { class: 'counter-controls' }, [
-          el('button', { type: 'button', 'aria-label': `${field.label}を1減らす`, onclick: () => update(-1), text: '−' }),
+          stepButton(`${field.label}を1減らす`, '−', () => update(-1)),
           value,
-          el('button', { type: 'button', 'aria-label': `${field.label}を1増やす`, onclick: () => update(1), text: '＋' }),
+          stepButton(`${field.label}を1増やす`, '＋', () => update(1)),
         ]),
       ])
     );
   }
+}
+
+/**
+ * 連打しても拡大しないボタン。
+ * click ではなく pointerdown で処理し、既定動作（ダブルタップ拡大）を止める。
+ */
+function stepButton(label, text, action) {
+  const button = el('button', { type: 'button', 'aria-label': label, text });
+  let handled = false;
+  if (typeof window !== 'undefined' && 'PointerEvent' in window) {
+    button.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      handled = true;
+      action();
+    });
+    // ポインタが使えない環境のための保険（二重に数えない）
+    button.addEventListener('click', () => {
+      if (handled) {
+        handled = false;
+        return;
+      }
+      action();
+    });
+  } else {
+    button.addEventListener('click', action);
+  }
+  return button;
 }
 
 function renderSundayDrill() {
