@@ -6,6 +6,7 @@ import {
   diffDays,
   formatLong,
   formatShort,
+  formatTime,
   parseISO,
   toISO,
   todayJST,
@@ -103,7 +104,7 @@ function toast(message, warn = false) {
   node.classList.toggle('warn', warn);
   node.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => node.classList.remove('show'), 1900);
+  toastTimer = setTimeout(() => node.classList.remove('show'), 2600);
 }
 
 /** 保存して結果を通知する（要件12：明確な保存完了表示） */
@@ -713,6 +714,24 @@ function renderHome() {
   $('#home-memo').value = record?.memo || '';
   clear($('#home-memo-feedback'));
 
+  // 記録済みかどうかを、トーストではなく画面に残す
+  const statusState = $('#home-status-state');
+  if (record?.status) {
+    const time = formatTime(record.updatedAt);
+    statusState.textContent = `「${STATUS_LABELS[record.status]}」で記録済み${time ? `（${time}）` : ''}`;
+    statusState.classList.add('saved');
+  } else {
+    statusState.textContent = 'まだ記録していません。上から選んでください。';
+    statusState.classList.remove('saved');
+  }
+
+  const hasMemo = (record?.memo || '').trim();
+  $('#home-memo-summary').textContent = hasMemo ? 'メモを見る・書き直す' : 'メモ・疲労度・痛みを追加する';
+  renderSavedState('#home-memo-state', hasMemo ? record.updatedAt : null, {
+    prefix: 'このメモは保存済み',
+    empty: '保存すると、記録タブの「最近のメモ」から見返せます。',
+  });
+
   renderHomeBooking();
   renderHomeAdvice();
   renderLastRound();
@@ -772,12 +791,31 @@ function renderStatusButtons() {
   }
 }
 
+/** 保存済みかどうかを画面に残す（トーストは消えるため） */
+function renderSavedState(selector, savedAt, { prefix = '保存しました', empty = '' } = {}) {
+  const node = $(selector);
+  if (!node) return;
+  if (!savedAt) {
+    node.textContent = empty;
+    node.classList.remove('saved');
+    return;
+  }
+  const time = formatTime(savedAt);
+  node.textContent = time ? `${prefix}（${time}）` : prefix;
+  node.classList.add('saved');
+}
+
 function setStatus(date, status) {
   const rec = ensureDaily(date);
   rec.status = status;
   rec.menuType = effectiveMenu(weekday(date), state.planOverrides, state.settings.weeklyPlan).type;
   state.daily[date] = stamp(rec);
   persist(`${formatShort(date)} を「${STATUS_LABELS[status]}」で記録しました`);
+  // 記録したら、そのままメモを書けるように開く（別操作にしない）
+  if (date === today) {
+    const group = $('#home-memo-group');
+    if (group) group.open = true;
+  }
   renderAll();
   if (sheetDate) renderSheet();
 }
@@ -1032,6 +1070,8 @@ function renderCalendar() {
 
   renderMemoList();
 
+  renderSavedState('#set-saved-state', state.settings.updatedAt, { prefix: '保存済み', empty: '' });
+
   $('#set-start').value = state.settings.startDate;
   $('#set-target').value = state.settings.targetScore;
   $('#set-first').value = state.settings.firstStageAverage;
@@ -1167,10 +1207,22 @@ function renderPractice() {
   renderCounters($('#rng-driver'), DRIVER_FIELDS);
   renderCounters($('#rng-green'), GREEN_FIELDS);
   $('#rng-cue').value = sessionDraft.swingCue || '';
-  $('#rng-saved-note').textContent = state.range[practiceDate] ? 'この日の記録は保存済みです（上書きできます）' : '';
+  const savedSession = state.range[practiceDate];
+  $('#rng-saved-note').textContent = savedSession
+    ? `この日の記録は保存済みです${savedSession.updatedAt ? `（${formatTime(savedSession.updatedAt)}）` : ''}。上書きできます。`
+    : '';
 
   renderSundayDrill();
   renderCarryTable();
+  const lastCarry = Object.values(state.carry || {})
+    .map((c) => c.updatedAt)
+    .filter(Boolean)
+    .sort()
+    .pop();
+  renderSavedState('#carry-saved-state', lastCarry, {
+    prefix: '保存済み',
+    empty: '実測した距離を入れて保存してください。',
+  });
   renderRangeSummary();
 }
 
@@ -1283,6 +1335,7 @@ function saveCarry() {
     state.carry[club] = stamp(state.carry[club]);
   }
   persist('キャリーを保存しました');
+  renderSavedState('#carry-saved-state', new Date().toISOString(), { prefix: 'キャリーを保存しました' });
 }
 
 // ---------------------------------------------------------------------------
@@ -2150,6 +2203,8 @@ function bindEvents() {
     rec.memo = $('#home-memo').value.trim();
     state.daily[today] = stamp(rec);
     persist('メモを保存しました');
+    renderSavedState('#home-memo-state', state.daily[today].updatedAt, { prefix: 'このメモは保存済み' });
+    $('#home-memo-summary').textContent = rec.memo ? 'メモを見る・書き直す' : 'メモ・疲労度・痛みを追加する';
     renderMemoFeedback(state.daily[today]);
   });
 
@@ -2172,6 +2227,7 @@ function bindEvents() {
       firstStageAverage: clamp(num($('#set-first').value, 92), 60, 120),
     });
     persist('設定を保存しました');
+    renderSavedState('#set-saved-state', state.settings.updatedAt, { prefix: '設定を保存しました' });
     renderAll();
   });
 

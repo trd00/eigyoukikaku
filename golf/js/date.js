@@ -83,6 +83,19 @@ export function formatLong(iso) {
   return `${y}年${m}月${d}日(${WEEKDAY_LABELS[weekday(iso)]})`;
 }
 
+/** ISO日時を日本時間の HH:MM で表示する */
+const JST_TIME = new Intl.DateTimeFormat('ja-JP', {
+  timeZone: 'Asia/Tokyo',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+export function formatTime(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? JST_TIME.format(new Date(t)) : '';
+}
+
 /** 指定月の日数 */
 export function daysInMonth(y, m) {
   return new Date(Date.UTC(y, m, 0)).getUTCDate();

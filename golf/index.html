@@ -146,11 +146,12 @@
         </section>
 
         <section class="card">
-          <p class="card-title">今日のステータス</p>
+          <p class="card-title">今日の記録</p>
           <div class="btn-row" id="home-status"></div>
+          <p class="saved-state" id="home-status-state">まだ記録していません</p>
           <p class="inline-note" id="home-status-note">一部でも実施できた日は「一部だけ実施」で記録します。実施日として数えます。</p>
-          <details class="group" style="margin-top: 10px">
-            <summary>メモ・疲労度・痛みを記録する</summary>
+          <details class="group" id="home-memo-group" style="margin-top: 10px">
+            <summary id="home-memo-summary">メモ・疲労度・痛みを追加する</summary>
             <div class="group-body">
               <div class="field">
                 <label for="home-fatigue">疲労度（1:軽い 〜 5:重い）</label>
@@ -178,6 +179,7 @@
                 <textarea id="home-memo" placeholder="良かった感覚・気づき"></textarea>
               </div>
               <button class="btn-primary" id="home-memo-save">メモを保存</button>
+              <p class="saved-state" id="home-memo-state"></p>
               <div id="home-memo-feedback"></div>
             </div>
           </details>
@@ -272,6 +274,7 @@
             </div>
           </div>
           <button class="btn-primary" id="set-save">設定を保存</button>
+          <p class="saved-state" id="set-saved-state"></p>
         </section>
       </div>
 
@@ -316,6 +319,7 @@
           </div>
           <div id="carry-table"></div>
           <button class="btn-primary" id="carry-save" style="margin-top: 10px">キャリーを保存</button>
+          <p class="saved-state" id="carry-saved-state"></p>
           <p class="section-note">
             番手選択は「基準」ではなく「安全」で決めると手前のミスが減ります。7Iは実測135〜140ydを前提にしています。
           </p>

@@ -966,6 +966,27 @@ details.group > .group-body {
   color: var(--lime);
 }
 
+/* ---------- 保存状態の表示 ---------- */
+.saved-state {
+  font-size: 12px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+
+.saved-state.saved {
+  color: var(--lime);
+  font-weight: 700;
+}
+
+.saved-state.saved::before {
+  content: '✓';
+  font-size: 13px;
+}
+
 /* ---------- メモへの応答・メモ一覧 ---------- */
 .feedback {
   margin-top: 12px;
