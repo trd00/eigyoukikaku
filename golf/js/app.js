@@ -790,6 +790,8 @@ function diagnosisInput() {
     practice: practiceStats({ startDate: state.settings.startDate, records: dailyList(state), today, restWeekdays: state.settings.restWeekdays }),
     rangeStats: rangeSessionStats(rangeList(state)),
     settings: state.settings,
+    records: dailyList(state),
+    today,
   };
 }
 

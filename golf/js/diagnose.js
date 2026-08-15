@@ -5,6 +5,7 @@
 
 import { resolveCourse, STANDARD_SLOPE, DEFAULT_PAR } from './courses.js';
 import { fullRounds, halfRounds, recent, round1, sortByDateAsc, values } from './stats.js';
+import { buildMemoInsights, describeTheme } from './insights.js';
 
 // ---------------------------------------------------------------------------
 // コースレート関連
@@ -178,6 +179,11 @@ export const DATA_REQUESTS = {
     how: '練習場のバンカーで10球。1回で出た球数を記録する。',
     why: 'トリプル以上のホールにバンカーが絡んでいる場合、最短の改善箇所になるため。',
   },
+  'memo-detail': {
+    title: '練習メモに「どうなったか」まで書く',
+    how: '「何を意識したか」に加えて、「その結果どうなったか（球筋・距離・方向）」を1行足す。例：ゆっくり振った → 右へのブレが減った。',
+    why: '意識した内容だけでは、それが効いたのか偶然かを後から判別できないため。',
+  },
   'round-detail': {
     title: 'ラウンド中のパーオン数・ボギーオン数・3パット数',
     how: 'スコアカードに「◯＝パーオン」「△＝ボギーオン以内」「3＝3パット」を書き、終了後にアプリのスコア登録で合計を入れる。1ホールにつき記号1つで済む。',
@@ -202,7 +208,15 @@ export const DATA_REQUESTS = {
  * @param {object} input.rangeStats rangeSessionStats の結果
  * @param {object} input.settings ProjectSettings
  */
-export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = null, settings = {} }) {
+export function buildDiagnosis({
+  rounds,
+  courses,
+  practice = null,
+  rangeStats = null,
+  settings = {},
+  records = [],
+  today = null,
+}) {
   const enriched = withCourseContext(rounds, courses);
   const full = fullRounds(enriched);
   const last5 = recent(full, 5);
@@ -482,6 +496,56 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
     }
   }
 
+  // --- 9. 練習メモとラウンドの記述 -----------------------------------------
+  // メモはこのアプリで最も情報量が多い記録。傾向として読めるときだけ扱う。
+  const memoInsights = today ? buildMemoInsights({ records, rounds, today }) : null;
+
+  if (memoInsights) {
+    const top = memoInsights.topTheme;
+    if (memoInsights.hasEnough && top && top.count >= 3) {
+      findings.push({
+        key: 'memo-recurring',
+        level: top.trend === 'down' ? 'keep' : 'improve',
+        area: '練習メモ',
+        fact: `直近${memoInsights.windowDays}日のメモで、${describeTheme(top)}`,
+        reading:
+          top.trend === 'down'
+            ? '同じ話題を書く回数が減っています。意識しなくてもできるようになったか、単に触れていないかのどちらかです。'
+            : '同じ話題を繰り返し書いている状態です。気づきが毎回リセットされている（定着していない）可能性があります。まだ身についていない項目と考えて扱います。',
+        action:
+          top.trend === 'down'
+            ? `${top.label}は、次のラウンドで結果を確認します。ラウンド後のメモに結果を1行書いてください。`
+            : `次の1週間は、練習の最初の3分を${top.label}の確認だけに固定します。毎回同じ手順から入ると、再現できたかどうかが判定できます。`,
+        dataNeeded: ['memo-detail'],
+      });
+      dataKeys.push('memo-detail');
+    }
+
+    const follow = memoInsights.focusFollowUp;
+    if (follow && follow.daysSince >= 3) {
+      if (follow.matchedCount === 0 && follow.memosSince >= 2) {
+        findings.push({
+          key: 'focus-not-practiced',
+          level: 'improve',
+          area: '課題の引き継ぎ',
+          fact: `前回のラウンド（${follow.round.date}）で決めた課題は「${follow.focusText}」。その後${follow.daysSince}日でメモは${follow.memosSince}件ありますが、この課題に触れた記述は0件です。`,
+          reading:
+            'ラウンドで決めた課題が、日々の練習に繋がっていません。ラウンド直後の気づきは時間が経つほど薄れるため、次のラウンドでも同じ結果になりやすい状態です。',
+          action: '今日の練習の1項目目を、この課題そのものに置き換えてください。5分で構いません。',
+        });
+      } else if (follow.matchedCount >= 2) {
+        findings.push({
+          key: 'focus-practiced',
+          level: 'keep',
+          area: '課題の引き継ぎ',
+          fact: `前回の課題「${follow.focusText}」に触れたメモが${follow.matchedCount}件あります（直近 ${follow.lastMatchedDate}）。`,
+          reading: 'ラウンドで決めた課題が練習に繋がっています。次のラウンドで結果を確認できる状態です。',
+          action: '次のラウンド後、この課題がどうなったかを「今日もっとも良かった感覚」に1行書いてください。',
+        });
+      }
+    }
+  }
+
   // --- 気になるポイント -----------------------------------------------------
   if (last5.length < 5) {
     watchPoints.push({
@@ -548,6 +612,18 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
     dataKeys.push('approach-precision');
   }
 
+  if (memoInsights && memoInsights.totalMemos === 0) {
+    watchPoints.push({
+      title: '練習メモが未記録',
+      body: 'スコアの数値だけでは、その日に何を意識したかまでは残りません。一言でも書いておくと、繰り返している課題や、ラウンドで決めた課題が練習に繋がっているかを判定できます。',
+    });
+  } else if (memoInsights && !memoInsights.hasEnough) {
+    watchPoints.push({
+      title: `メモが${memoInsights.totalMemos}件`,
+      body: '3件を超えたあたりから、繰り返している課題が見えるようになります。それまでは1件ごとの記述として扱い、傾向としては読みません。',
+    });
+  }
+
   if (rangeStats && rangeStats.count === 0) {
     watchPoints.push({
       title: '打ちっぱなしの記録が未入力',
@@ -569,6 +645,7 @@ export function buildDiagnosis({ rounds, courses, practice = null, rangeStats = 
     planChanges,
     dataRequests,
     courseStats: courseStats(rounds, courses),
+    memoInsights,
   };
 }
 

@@ -7,6 +7,7 @@
 import { WEEKDAY_LABELS, formatLong, formatShort, diffDays, weekday } from './date.js';
 import { effectiveMenu, isRestWeekday, stepsForWeekday } from './menu.js';
 import { fullRounds, recent, sortByDateAsc, values } from './stats.js';
+import { describeTheme, memoEntries } from './insights.js';
 
 /** 相談画面に並べる質問 */
 export const QUESTIONS = [
@@ -17,6 +18,7 @@ export const QUESTIONS = [
   { key: 'putts', label: 'パット数が多いのは悪いこと？' },
   { key: 'club', label: '番手はどう選べばいい？' },
   { key: 'cannot-continue', label: '練習が続かない' },
+  { key: 'memo', label: 'メモから何が見える？' },
   { key: 'next-data', label: '次に何を記録すればいい？' },
 ];
 
@@ -175,6 +177,53 @@ const ANSWERS = {
     return lines;
   },
 
+  memo({ diagnosis, state }) {
+    const insights = diagnosis?.memoInsights;
+    if (!insights || insights.totalMemos === 0) {
+      return [
+        'メモがまだありません。',
+        'ホーム画面の「メモ・疲労度・痛みを記録する」に、その日に意識したことと、その結果どうなったかを1行ずつ書いてください。3件を超えたあたりから、繰り返している課題が見えるようになります。',
+      ];
+    }
+
+    const lines = [`メモは${insights.totalMemos}件です。`];
+    if (!insights.hasEnough) {
+      lines.push('傾向として読むには件数が足りません。今は1件ごとの記述として扱います。');
+      if (insights.latest) {
+        lines.push(`直近（${formatShort(insights.latest.date)}）：${insights.latest.memo}`);
+      }
+      return lines;
+    }
+
+    if (insights.recurring.length) {
+      lines.push(`直近${insights.windowDays}日で繰り返している話題です。`);
+      for (const theme of insights.recurring.slice(0, 3)) lines.push(`・${describeTheme(theme)}`);
+      const top = insights.recurring[0];
+      lines.push(
+        top.trend === 'down'
+          ? `${top.label}を書く回数は減っています。次のラウンドで結果を確認する段階です。`
+          : `同じ話題を繰り返し書いている場合、その項目はまだ身についていないと考えます。次の1週間は、練習の最初の3分を${top.label}の確認だけに固定してください。`
+      );
+    } else {
+      lines.push('同じ話題が繰り返し出てはいません。日によって書く内容が変わっている状態です。');
+    }
+
+    const follow = insights.focusFollowUp;
+    if (follow) {
+      lines.push(
+        follow.matchedCount === 0
+          ? `前回のラウンドで決めた課題「${follow.focusText}」は、その後のメモに現れていません。今日の練習の1項目目をこの課題に置き換えてください。`
+          : `前回のラウンドで決めた課題「${follow.focusText}」に触れたメモが${follow.matchedCount}件あります。次のラウンドで結果を確認できます。`
+      );
+    }
+
+    if (insights.bestFeelings.length) {
+      const best = insights.bestFeelings[insights.bestFeelings.length - 1];
+      lines.push(`ラウンドで良かった感覚（${formatShort(best.date)}）：${best.text}`);
+    }
+    return lines;
+  },
+
   'next-data'({ diagnosis, state }) {
     const requests = diagnosis?.dataRequests || [];
     const notCollected = requests.filter((r) => !state.collectedData?.[r.key]);
@@ -257,6 +306,38 @@ export function buildConsultPrompt({ state, stats, practice, diagnosis, booking,
     lines.push('');
     lines.push('【未記録・注意点】');
     for (const w of watch.slice(0, 4)) lines.push(`- ${w.title}`);
+  }
+
+  const memos = memoEntries(Object.values(state.daily || {}), 8);
+  if (memos.length) {
+    lines.push('');
+    lines.push('【練習メモ（新しい順）】');
+    for (const m of memos) {
+      const extra = [];
+      if (m.status) extra.push(m.status === 'done' ? '完了' : m.status === 'partial' ? '一部' : m.status === 'rest' ? '休養' : '未実施');
+      if (m.fatigue) extra.push(`疲労${m.fatigue}`);
+      if (m.pain && m.pain !== 'none') extra.push('痛みあり');
+      lines.push(`- ${m.date}${extra.length ? `（${extra.join('・')}）` : ''}：${String(m.memo).replace(/\n/g, ' / ')}`);
+    }
+  }
+
+  const withNotes = sortByDateAsc(fullRounds(rounds)).filter((r) => (r.bestFeeling || '').trim() || (r.nextFocus || '').trim());
+  if (withNotes.length) {
+    lines.push('');
+    lines.push('【ラウンドでの気づき】');
+    for (const r of withNotes.slice(-3)) {
+      if ((r.bestFeeling || '').trim()) lines.push(`- ${r.date} 良かった感覚：${r.bestFeeling.trim()}`);
+      if ((r.nextFocus || '').trim()) lines.push(`- ${r.date} 次回の課題：${r.nextFocus.trim()}`);
+    }
+  }
+
+  const insights = diagnosis?.memoInsights;
+  if (insights?.recurring?.length) {
+    lines.push('');
+    lines.push('【繰り返している話題】');
+    for (const t of insights.recurring.slice(0, 3)) {
+      lines.push(`- ${t.label}：直近${insights.windowDays}日で${t.count}回（その前の期間は${t.previousCount}回）`);
+    }
   }
 
   lines.push('');
