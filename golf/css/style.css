@@ -966,6 +966,123 @@ details.group > .group-body {
   color: var(--lime);
 }
 
+/* ---------- 初回セットアップ ---------- */
+.setup {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--navy);
+  overflow-y: auto;
+  padding: calc(env(safe-area-inset-top) + 24px) 20px calc(env(safe-area-inset-bottom) + 24px);
+}
+
+.setup[hidden] {
+  display: none;
+}
+
+.setup-inner {
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.setup-title {
+  font-size: 22px;
+  margin: 8px 0 6px;
+}
+
+.setup-note {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+
+.setup-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+  min-height: 88px;
+}
+
+.setup-choice:focus-visible,
+.setup-choice.selected {
+  border-color: var(--lime);
+  outline: none;
+}
+
+.setup-choice-title {
+  display: block;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--lime);
+  margin-bottom: 4px;
+}
+
+.setup-choice-desc {
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+  color: #d6e2ec;
+  line-height: 1.5;
+}
+
+/* ---------- クラウド ---------- */
+.cloud-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 10px;
+}
+
+.cloud-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--card-2);
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: var(--lime);
+  overflow: hidden;
+}
+
+.cloud-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cloud-name {
+  font-size: 15px;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.cloud-mail {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.cloud-state {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.cloud-state b {
+  color: var(--lime);
+}
+
+.cloud-state.offline b {
+  color: var(--partial);
+}
+
 /* ---------- トースト ---------- */
 .toast {
   position: fixed;

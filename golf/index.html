@@ -584,6 +584,37 @@
         </section>
 
         <section class="card">
+          <p class="card-title">クラウド同期（Googleログイン）</p>
+          <div id="cloud-status"></div>
+          <div id="cloud-actions"></div>
+          <details class="group" id="cloud-setup-group" style="margin-top: 10px">
+            <summary>クラウド設定を貼り付ける</summary>
+            <div class="group-body">
+              <p class="section-note" style="margin-top: 0">
+                Firebaseコンソールで作ったウェブアプリの構成（apiKey などが並んだもの）を、そのまま貼り付けて保存します。
+                この値は公開しても問題のない識別子で、データの保護はサーバー側のルールで行います。
+              </p>
+              <div class="field">
+                <label for="cloud-config">Firebaseの構成</label>
+                <textarea id="cloud-config" rows="6" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", "appId": "..." }'></textarea>
+              </div>
+              <div class="btn-row">
+                <button class="btn-ghost" id="cloud-config-clear">設定を消す</button>
+                <button class="btn-primary" id="cloud-config-save">保存して接続</button>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="card">
+          <p class="card-title">利用者</p>
+          <div id="profile-status"></div>
+          <button class="btn-ghost btn-small" id="profile-reset" style="width: 100%; margin-top: 10px">
+            利用者を選び直す
+          </button>
+        </section>
+
+        <section class="card">
           <p class="card-title">データ管理</p>
           <p class="section-note" style="margin-top: 0">
             入力データはこの端末のブラウザ内だけに保存され、外部へは送信されません。機種変更やブラウザ履歴の削除で消えるため、時々バックアップを取ってください。
@@ -633,6 +664,34 @@
       <div class="btn-row">
         <button class="btn-ghost" id="sheet-clear">記録を消す</button>
         <button class="btn-primary" id="sheet-close">閉じる</button>
+      </div>
+    </div>
+
+    <!-- 初回起動：誰のデータとして使うかを選ぶ -->
+    <div class="setup" id="setup" hidden>
+      <div class="setup-inner">
+        <p class="hero-label">TRD GOLF PROJECT</p>
+        <h2 class="setup-title">このアプリを誰が使いますか？</h2>
+        <p class="setup-note">
+          あとから変更できます。データはこの端末に保存され、他の人の画面には出ません。
+        </p>
+        <button class="setup-choice" id="setup-owner">
+          <span class="setup-choice-title">てらちゃん（本人）</span>
+          <span class="setup-choice-desc">
+            楽天GORAから取り込んだ36ラウンドの履歴と、番手別キャリーが入った状態で始めます。
+          </span>
+        </button>
+        <button class="setup-choice" id="setup-new">
+          <span class="setup-choice-title">別の人が使う</span>
+          <span class="setup-choice-desc">
+            スコアも練習記録も空の状態から始めます。ゴルフ場の一覧だけ引き継ぎます。
+          </span>
+        </button>
+        <div class="field" id="setup-name-field" hidden>
+          <label for="setup-name">お名前（分析の表示に使います）</label>
+          <input type="text" id="setup-name" placeholder="例：お兄さん" />
+          <button class="btn-primary" id="setup-start" style="width: 100%; margin-top: 10px">始める</button>
+        </div>
       </div>
     </div>
 

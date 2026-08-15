@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// TRD GOLF PROJECT のデータ保護ルール。
+//
+// 各ユーザーは users/{自分のUID} だけを読み書きできる。
+// 他人のデータはログインしていても読めない（兄弟で使っても互いのデータは見えない）。
+// ログインしていない相手は一切読み書きできない。
+//
+// 反映方法：Firebaseコンソール → Firestore Database → ルール → 全文を貼り付けて「公開」
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId
+                         && isValidSize();
+    }
+
+    // 1ドキュメントが極端に大きくならないよう上限を設ける（誤操作・いたずら対策）
+    function isValidSize() {
+      return !('state' in request.resource.data)
+             || request.resource.data.state.size() < 900000;
+    }
+
+    // 上記以外は全て拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

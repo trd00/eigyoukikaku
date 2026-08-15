@@ -29,6 +29,10 @@ let memoryFallback = null;
 export function defaultState(today = todayJST()) {
   return {
     version: SCHEMA_VERSION,
+    // 誰のデータとして使うか。null＝初回の選択がまだ。
+    // true＝てらちゃんの履歴（初期36ラウンド）を引き継ぐ／false＝空から始める
+    useSeedData: null,
+    profileName: '',
     settings: {
       startDate: today,
       targetScore: 85,
@@ -71,7 +75,13 @@ function migrate(raw) {
     courses,
     bookings: Array.isArray(raw.bookings) ? raw.bookings : [],
     planOverrides: raw.planOverrides && typeof raw.planOverrides === 'object' ? raw.planOverrides : {},
+    planOverridesUpdatedAt: raw.planOverridesUpdatedAt || null,
     collectedData: raw.collectedData && typeof raw.collectedData === 'object' ? raw.collectedData : {},
+    // 既存の利用者（すでにデータがある端末）は初期履歴ありのまま維持する
+    useSeedData: raw.useSeedData === undefined || raw.useSeedData === null ? true : raw.useSeedData,
+    profileName: raw.profileName || '',
+    cloudUid: raw.cloudUid || null,
+    syncedAt: raw.syncedAt || null,
   };
 }
 
@@ -103,9 +113,11 @@ export function saveState(state) {
  * seedとユーザー追加ラウンドを同じ型で1本のリストにする（要件17）。
  */
 export function allRounds(state) {
+  const user = (state.rounds || []).map((r) => ({ ...r, source: r.source || 'user' }));
+  // 「空から始める」を選んだ利用者には、てらちゃんの初期履歴を混ぜない
+  if (state.useSeedData === false) return user;
   const hidden = new Set(state.hiddenSeedIds || []);
   const seeds = SEED_ROUNDS.filter((r) => !hidden.has(r.id));
-  const user = (state.rounds || []).map((r) => ({ ...r, source: r.source || 'user' }));
   return [...seeds, ...user];
 }
 

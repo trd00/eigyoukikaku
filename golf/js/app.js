@@ -52,6 +52,8 @@ import {
   saveState,
 } from './store.js';
 import { CLUBS } from './seed.js';
+import * as cloud from './cloud.js';
+import { mergeStates, stamp } from './merge.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -107,7 +109,256 @@ function persist(message = '保存しました') {
   const result = saveState(state);
   if (result.ok) toast(message);
   else toast(result.error || '保存できませんでした', true);
+  scheduleCloudPush();
   return result.ok;
+}
+
+// ---------------------------------------------------------------------------
+// クラウド同期
+// ---------------------------------------------------------------------------
+
+let cloudUser = null;
+let cloudReady = false;
+let cloudUnsubscribe = null;
+let pushTimer = null;
+let lastSyncedAt = null;
+
+/** 連続保存でクラウドへ何度も書かないよう、まとめて送る */
+function scheduleCloudPush() {
+  if (!cloudUser) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(async () => {
+    try {
+      await cloud.push(cloudUser.uid, state);
+      lastSyncedAt = new Date();
+      renderCloudPanel();
+    } catch (e) {
+      console.warn('クラウドへの保存に失敗しました（通信が戻ったとき自動で再送されます）', e);
+      renderCloudPanel();
+    }
+  }, 1200);
+}
+
+async function startCloud() {
+  if (!cloud.isConfigured()) {
+    renderCloudPanel();
+    return;
+  }
+  cloudReady = await cloud.init();
+  if (!cloudReady) {
+    renderCloudPanel();
+    return;
+  }
+  cloud.onUserChange(async (user) => {
+    cloudUser = user;
+    renderCloudPanel();
+    if (cloudUnsubscribe) {
+      cloudUnsubscribe();
+      cloudUnsubscribe = null;
+    }
+    if (!user) return;
+
+    try {
+      // 1. クラウドの内容と手元の内容を統合する（どちらの入力も消さない）
+      const remote = await cloud.pull(user.uid);
+      state = mergeStates(state, remote);
+      state.cloudUid = user.uid;
+      saveState(state);
+      renderAll();
+      updateSetupVisibility();
+
+      // 2. 統合結果を書き戻す
+      await cloud.push(user.uid, state);
+      lastSyncedAt = new Date();
+
+      // 3. 他の端末の変更を受け取る
+      cloudUnsubscribe = cloud.subscribe(user.uid, (remoteState) => {
+        state = mergeStates(state, remoteState);
+        saveState(state);
+        lastSyncedAt = new Date();
+        renderAll();
+        renderCloudPanel();
+        updateSetupVisibility();
+      });
+      renderCloudPanel();
+      toast('クラウドと同期しました');
+    } catch (e) {
+      console.warn('同期に失敗しました', e);
+      toast('同期できませんでした（端末内の保存は有効です）', true);
+      renderCloudPanel();
+    }
+  });
+}
+
+function renderCloudPanel() {
+  const statusWrap = $('#cloud-status');
+  const actionWrap = $('#cloud-actions');
+  if (!statusWrap || !actionWrap) return;
+  clear(statusWrap);
+  clear(actionWrap);
+
+  if (!cloud.isConfigured()) {
+    statusWrap.appendChild(
+      el('p', {
+        class: 'section-note',
+        style: 'margin-top:0',
+        text: 'クラウド同期は未設定です。設定すると、機種変更やもう1台の端末でも同じデータを使えます。設定するまでは、これまで通りこの端末だけに保存されます。',
+      })
+    );
+    return;
+  }
+
+  if (!cloudReady) {
+    statusWrap.appendChild(
+      el('p', { class: 'cloud-state offline', html: '状態：<b>接続できません</b>' })
+    );
+    statusWrap.appendChild(
+      el('p', {
+        class: 'section-note',
+        text: 'オフラインか、設定が正しくない可能性があります。通信のある場所で開き直すと自動で再接続します。端末内のデータはそのまま使えます。',
+      })
+    );
+    actionWrap.appendChild(
+      el('button', {
+        class: 'btn-small',
+        style: 'width:100%',
+        text: '再接続する',
+        onclick: async () => {
+          await startCloud();
+          if (!cloudReady) toast('まだ接続できません', true);
+        },
+      })
+    );
+    return;
+  }
+
+  if (!cloudUser) {
+    statusWrap.appendChild(el('p', { class: 'cloud-state', html: '状態：<b>未ログイン</b>' }));
+    statusWrap.appendChild(
+      el('p', {
+        class: 'section-note',
+        text: 'ログインすると、この端末のデータがGoogleアカウントに紐づいて保存され、別の端末でも同じ内容を使えます。',
+      })
+    );
+    actionWrap.appendChild(
+      el('button', { class: 'btn-primary', style: 'width:100%', text: 'Googleでログイン', onclick: doSignIn })
+    );
+    return;
+  }
+
+  const initial = (cloudUser.name || cloudUser.email || '?').slice(0, 1);
+  statusWrap.appendChild(
+    el('div', { class: 'cloud-user' }, [
+      el('div', { class: 'cloud-avatar' }, [
+        cloudUser.photo ? el('img', { src: cloudUser.photo, alt: '' }) : el('span', { text: initial }),
+      ]),
+      el('div', {}, [
+        el('p', { class: 'cloud-name', text: cloudUser.name || '(名前なし)' }),
+        el('p', { class: 'cloud-mail', text: cloudUser.email }),
+      ]),
+    ])
+  );
+  statusWrap.appendChild(
+    el('p', {
+      class: 'cloud-state',
+      html: lastSyncedAt
+        ? `状態：<b>同期済み</b>（最終 ${lastSyncedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）`
+        : '状態：<b>接続中</b>',
+    })
+  );
+  actionWrap.appendChild(
+    el('div', { class: 'btn-row' }, [
+      el('button', { class: 'btn-ghost btn-small', text: 'ログアウト', onclick: doSignOut }),
+      el('button', { class: 'btn-small', text: '今すぐ同期', onclick: doSyncNow }),
+    ])
+  );
+  actionWrap.appendChild(
+    el('button', {
+      class: 'btn-danger btn-small',
+      style: 'width:100%;margin-top:8px',
+      text: 'クラウド上のデータを削除',
+      onclick: doDeleteCloud,
+    })
+  );
+}
+
+async function doSignIn() {
+  try {
+    await cloud.signIn();
+  } catch (e) {
+    const code = e && e.code ? e.code : '';
+    if (code === 'auth/unauthorized-domain') {
+      toast('この URL からのログインが許可されていません（Firebaseの承認済みドメインに追加してください）', true);
+    } else if (code === 'auth/popup-closed-by-user') {
+      toast('ログインを中止しました', true);
+    } else {
+      toast(`ログインできませんでした：${code || (e && e.message) || '不明なエラー'}`, true);
+    }
+  }
+}
+
+async function doSignOut() {
+  if (cloudUnsubscribe) {
+    cloudUnsubscribe();
+    cloudUnsubscribe = null;
+  }
+  await cloud.signOutUser();
+  cloudUser = null;
+  lastSyncedAt = null;
+  renderCloudPanel();
+  toast('ログアウトしました（端末内のデータは残ります）');
+}
+
+async function doSyncNow() {
+  if (!cloudUser) return;
+  try {
+    const remote = await cloud.pull(cloudUser.uid);
+    state = mergeStates(state, remote);
+    saveState(state);
+    await cloud.push(cloudUser.uid, state);
+    lastSyncedAt = new Date();
+    renderAll();
+    renderCloudPanel();
+    toast('同期しました');
+  } catch {
+    toast('同期できませんでした（通信を確認してください）', true);
+  }
+}
+
+async function doDeleteCloud() {
+  if (!cloudUser) return;
+  if (!window.confirm('クラウドに保存したデータを削除します。この端末のデータは残ります。よろしいですか？')) return;
+  try {
+    await cloud.remove(cloudUser.uid);
+    toast('クラウドのデータを削除しました');
+  } catch {
+    toast('削除できませんでした', true);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 初回セットアップ（利用者の選択）
+// ---------------------------------------------------------------------------
+
+function updateSetupVisibility() {
+  const needsSetup = state.useSeedData === null || state.useSeedData === undefined;
+  $('#setup').hidden = !needsSetup;
+  return needsSetup;
+}
+
+function chooseProfile(useSeed, name = '') {
+  state.useSeedData = useSeed;
+  state.profileName = name.trim();
+  if (!useSeed) {
+    // 空から始める場合は、てらちゃんの実測キャリーを引き継がない
+    for (const club of Object.keys(state.carry || {})) {
+      state.carry[club] = stamp({ club, normalCarry: null, safeCarry: null, measuredAt: '', memo: '' });
+    }
+    state.settings = stamp({ ...state.settings, startDate: today });
+  }
+  persist(useSeed ? '履歴を引き継いで始めます' : '新しく記録を始めます');
+  $('#setup').hidden = true;
+  renderAll();
 }
 
 function num(value, fallback = 0) {
@@ -268,6 +519,7 @@ function setStatus(date, status) {
   const rec = ensureDaily(date);
   rec.status = status;
   rec.menuType = menuForWeekday(weekday(date)).type;
+  state.daily[date] = stamp(rec);
   persist(`${formatShort(date)} を「${STATUS_LABELS[status]}」で記録しました`);
   renderAll();
   if (sheetDate) renderSheet();
@@ -659,7 +911,7 @@ function renderRangeSummary() {
 function saveSession() {
   sessionDraft.swingCue = $('#rng-cue').value.trim();
   sessionDraft.date = practiceDate;
-  state.range[practiceDate] = { ...sessionDraft };
+  state.range[practiceDate] = stamp({ ...sessionDraft });
   persist(`${formatShort(practiceDate)} の練習を保存しました`);
   renderPractice();
 }
@@ -672,6 +924,7 @@ function saveCarry() {
     const raw = input.value.trim();
     state.carry[club][kind] = raw === '' ? null : num(raw, null);
     state.carry[club].measuredAt = today;
+    state.carry[club] = stamp(state.carry[club]);
   }
   persist('キャリーを保存しました');
 }
@@ -911,8 +1164,8 @@ function saveCourse() {
   };
 
   const index = state.courses.findIndex((c) => c.id === record.id);
-  if (index >= 0) state.courses[index] = { ...state.courses[index], ...record };
-  else state.courses.push(record);
+  if (index >= 0) state.courses[index] = stamp({ ...state.courses[index], ...record });
+  else state.courses.push(stamp(record));
 
   persist('ゴルフ場を保存しました');
   clearCourseForm();
@@ -996,7 +1249,7 @@ function saveBooking() {
     tee: $('#bk-tee').value,
   };
   // 予定は1件だけ持つ（過去の予定は結果入力後に不要になるため置き換える）
-  state.bookings = [...(state.bookings || []).filter((b) => b.date < today), booking];
+  state.bookings = [...(state.bookings || []).filter((b) => b.date < today), stamp(booking)];
   persist('予約を保存しました');
   renderScore();
   renderHome();
@@ -1111,13 +1364,14 @@ function saveRound() {
     record.id = newId('round');
   }
 
-  const index = state.rounds.findIndex((r) => r.id === record.id);
+  const stamped = stamp(record);
+  const index = state.rounds.findIndex((r) => r.id === stamped.id);
   const sameDay = state.rounds.findIndex((r) => r.id !== record.id && r.date === date && r.course === course);
-  if (index >= 0) state.rounds[index] = record;
+  if (index >= 0) state.rounds[index] = stamped;
   else if (sameDay >= 0) {
     if (!window.confirm('同じ日・同じコースの記録があります。上書きしますか？')) return;
-    state.rounds[sameDay] = record;
-  } else state.rounds.push(record);
+    state.rounds[sameDay] = stamped;
+  } else state.rounds.push(stamped);
 
   // 予約していたラウンドの結果を入れたら、その予約は消化済みにする
   state.bookings = (state.bookings || []).filter((b) => !(b.date === date && b.courseId === courseId));
@@ -1210,6 +1464,26 @@ function renderAnalysis() {
   ].forEach((node) => practiceKpi.appendChild(node));
 
   renderPracticeScoreRelation();
+  renderCloudPanel();
+  renderProfileStatus();
+}
+
+function renderProfileStatus() {
+  const wrap = $('#profile-status');
+  if (!wrap) return;
+  clear(wrap);
+  const name = state.profileName || (state.useSeedData ? 'てらちゃん' : '（名前未設定）');
+  const rounds = allRounds(state).length;
+  wrap.appendChild(el('p', { class: 'cloud-name', text: name }));
+  wrap.appendChild(
+    el('p', {
+      class: 'section-note',
+      style: 'margin-top:4px',
+      text: state.useSeedData
+        ? `楽天GORAから取り込んだ履歴を含む ${rounds} ラウンドを表示しています。`
+        : `自分で登録した ${rounds} ラウンドだけを表示しています（初期履歴は含めていません）。`,
+    })
+  );
 }
 
 /** コースレート基準の現在地・診断・変更案・必要データ */
@@ -1296,6 +1570,7 @@ function renderPlanChanges(changes) {
 function togglePlanChange(change, isApplied) {
   if (isApplied) {
     delete state.planOverrides[change.day];
+    state.planOverridesUpdatedAt = new Date().toISOString();
     persist('元のメニューに戻しました');
   } else {
     state.planOverrides[change.day] = {
@@ -1304,6 +1579,7 @@ function togglePlanChange(change, isApplied) {
       purpose: change.purpose,
       steps: change.steps,
     };
+    state.planOverridesUpdatedAt = new Date().toISOString();
     persist(`${WEEKDAY_LABELS[change.day]}曜のメニューを変更しました`);
   }
   renderAnalysis();
@@ -1474,6 +1750,7 @@ function bindEvents() {
     rec.fatigue = $('#home-fatigue').value ? Number($('#home-fatigue').value) : undefined;
     rec.pain = $('#home-pain').value;
     rec.memo = $('#home-memo').value.trim();
+    state.daily[today] = stamp(rec);
     persist('メモを保存しました');
   });
 
@@ -1489,9 +1766,12 @@ function bindEvents() {
   $('#set-save').addEventListener('click', () => {
     const start = $('#set-start').value;
     if (!start) return toast('開始日を入力してください', true);
-    state.settings.startDate = start;
-    state.settings.targetScore = clamp(num($('#set-target').value, 85), 60, 120);
-    state.settings.firstStageAverage = clamp(num($('#set-first').value, 92), 60, 120);
+    state.settings = stamp({
+      ...state.settings,
+      startDate: start,
+      targetScore: clamp(num($('#set-target').value, 85), 60, 120),
+      firstStageAverage: clamp(num($('#set-first').value, 92), 60, 120),
+    });
     persist('設定を保存しました');
     renderAll();
   });
@@ -1570,6 +1850,44 @@ function bindEvents() {
     toast('入力をクリアしました');
   });
 
+  // 初回セットアップ
+  $('#setup-owner').addEventListener('click', () => chooseProfile(true, 'てらちゃん'));
+  $('#setup-new').addEventListener('click', () => {
+    $('#setup-name-field').hidden = false;
+    $('#setup-new').classList.add('selected');
+    $('#setup-owner').classList.remove('selected');
+    $('#setup-name').focus();
+  });
+  $('#setup-start').addEventListener('click', () => chooseProfile(false, $('#setup-name').value));
+  $('#profile-reset').addEventListener('click', () => {
+    if (!window.confirm('利用者を選び直します。入力済みのデータはそのまま残ります。よろしいですか？')) return;
+    state.useSeedData = null;
+    saveState(state);
+    $('#setup-name-field').hidden = true;
+    updateSetupVisibility();
+  });
+
+  // クラウド設定
+  $('#cloud-config-save').addEventListener('click', async () => {
+    try {
+      const config = cloud.parseConfig($('#cloud-config').value);
+      cloud.saveConfig(config);
+      toast('設定を保存しました。接続します');
+      $('#cloud-setup-group').open = false;
+      await startCloud();
+    } catch (e) {
+      toast(`設定を読み取れません：${e.message}`, true);
+    }
+  });
+  $('#cloud-config-clear').addEventListener('click', () => {
+    if (!window.confirm('クラウド設定を削除します。端末内のデータは残ります。よろしいですか？')) return;
+    cloud.clearConfig();
+    cloudUser = null;
+    $('#cloud-config').value = '';
+    renderCloudPanel();
+    toast('クラウド設定を削除しました');
+  });
+
   $('#data-export').addEventListener('click', exportData);
   $('#data-import-btn').addEventListener('click', () => $('#data-import').click());
   $('#data-import').addEventListener('change', (e) => {
@@ -1594,10 +1912,13 @@ function bindEvents() {
 
 function init() {
   bindEvents();
+  updateSetupVisibility();
   showView(currentView());
   if (!canPersist) {
     toast('この端末では保存できない設定です（プライベートモードなど）', true);
   }
+  // クラウドは設定済みのときだけ動く。失敗しても端末内保存で継続する。
+  startCloud().catch((e) => console.warn('クラウド初期化に失敗しました', e));
   // index.html の起動チェック用。ここまで来れば画面は動いている。
   window.__trdGolfReady = true;
 }
