@@ -146,12 +146,22 @@
           </details>
         </section>
 
+        <section class="card" id="home-consult-card">
+          <p class="card-title">相談する</p>
+          <p class="section-note" style="margin-top: 0">
+            自分の記録をもとに答えます。数字の意味が分からないとき、何をすればいいか迷ったときに使ってください。
+          </p>
+          <button class="btn-primary" id="open-consult" style="width: 100%; margin-top: 10px">
+            相談をひらく
+          </button>
+        </section>
+
         <section class="card" id="home-booking-card">
           <p class="card-title">次のラウンド</p>
           <div id="home-booking"></div>
         </section>
 
-        <section class="card">
+        <section class="card" id="home-advice-card">
           <p class="card-title">今週の重点</p>
           <div id="home-advice"></div>
         </section>
@@ -507,12 +517,12 @@
           <p class="section-note" id="an-rating-note"></p>
         </section>
 
-        <section class="card">
+        <section class="card" id="an-findings-card">
           <p class="card-title">診断（直近5ラウンド）</p>
           <div id="an-findings"></div>
         </section>
 
-        <section class="card">
+        <section class="card" id="an-watch-card">
           <p class="card-title">気になるポイント</p>
           <div id="an-watch"></div>
         </section>
@@ -522,7 +532,7 @@
           <div id="an-plan"></div>
         </section>
 
-        <section class="card">
+        <section class="card" id="an-data-card">
           <p class="card-title">次に取りたいデータ</p>
           <p class="section-note" style="margin-top: 0">
             診断で判別できなかった点を確定させるための計測です。取れた項目はチェックすると、次の診断で「取得済み」として扱います。
@@ -609,6 +619,14 @@
         <section class="card">
           <p class="card-title">利用者</p>
           <div id="profile-status"></div>
+          <label class="focus-option" style="margin-top: 12px">
+            <input type="checkbox" id="advice-toggle" />
+            <span>診断とアドバイスを表示する</span>
+          </label>
+          <p class="section-note" style="margin-top: 0">
+            オフにすると、診断・気になるポイント・練習プランの変更案・次に取りたいデータを表示せず、数値と推移だけになります。
+            相談画面は自分から開いたときだけ使えます。
+          </p>
           <button class="btn-ghost btn-small" id="profile-reset" style="width: 100%; margin-top: 10px">
             利用者を選び直す
           </button>
@@ -664,6 +682,23 @@
       <div class="btn-row">
         <button class="btn-ghost" id="sheet-clear">記録を消す</button>
         <button class="btn-primary" id="sheet-close">閉じる</button>
+      </div>
+    </div>
+
+    <!-- 相談画面 -->
+    <div class="consult" id="consult" hidden>
+      <div class="consult-header">
+        <button class="consult-close" id="consult-close" aria-label="閉じる">×</button>
+        <span class="consult-title">相談</span>
+        <button class="consult-reset" id="consult-reset">最初から</button>
+      </div>
+      <div class="consult-log" id="consult-log"></div>
+      <div class="consult-foot">
+        <p class="consult-hint">聞きたいことを選んでください</p>
+        <div class="consult-chips" id="consult-chips"></div>
+        <button class="btn-small" id="consult-copy" style="width: 100%; margin-top: 8px">
+          この内容をコピー（ChatGPTなどに貼る用）
+        </button>
       </div>
     </div>
 
@@ -752,6 +787,25 @@
           </div>
 
           <div class="setup-page" id="setup-page-5" hidden>
+            <h3 class="setup-heading">アドバイスの表示</h3>
+            <p class="setup-note">
+              記録した数値をもとに、改善点や練習メニューの変更案を出す機能です。数値だけを見たい場合はオフにできます。あとから変更できます。
+            </p>
+            <button class="setup-choice" id="setup-advice-on">
+              <span class="setup-choice-title">アドバイスを受け取る</span>
+              <span class="setup-choice-desc">
+                診断・気になるポイント・練習プランの変更案・次に取りたいデータを表示します。
+              </span>
+            </button>
+            <button class="setup-choice" id="setup-advice-off">
+              <span class="setup-choice-title">数値だけ見る</span>
+              <span class="setup-choice-desc">
+                スコアと練習の記録・グラフだけを表示します。相談画面は自分から開いたときだけ使えます。
+              </span>
+            </button>
+          </div>
+
+          <div class="setup-page" id="setup-page-6" hidden>
             <h3 class="setup-heading">この内容で始めます</h3>
             <div id="setup-summary"></div>
             <p class="setup-note">週間メニューは、あとから分析画面の診断に応じて変更できます。</p>

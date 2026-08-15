@@ -54,6 +54,7 @@ import {
 import { CLUBS } from './seed.js';
 import * as cloud from './cloud.js';
 import { FOCUS_OPTIONS, buildWeeklyPlan, describePlan, restDaysOf } from './plan.js';
+import { QUESTIONS, answerFor, buildConsultPrompt } from './consult.js';
 import { mergeStates, stamp } from './merge.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -338,6 +339,109 @@ async function doDeleteCloud() {
 }
 
 // ---------------------------------------------------------------------------
+// 相談画面
+// ---------------------------------------------------------------------------
+
+let consultAsked = [];
+
+function consultContext() {
+  const rounds = allRounds(state);
+  const booking = nextBooking(state, today);
+  return {
+    state,
+    rounds,
+    today,
+    stats: roundStats(rounds),
+    practice: practiceStats({
+      startDate: state.settings.startDate,
+      records: dailyList(state),
+      today,
+      restWeekdays: state.settings.restWeekdays,
+    }),
+    diagnosis: currentDiagnosis(),
+    booking: booking
+      ? analyzeBooking({ booking, rounds, courses: courseList(state), settings: state.settings })
+      : null,
+  };
+}
+
+function bubble(text, who = 'app') {
+  return el('div', { class: `bubble ${who}`, text });
+}
+
+function openConsult() {
+  $('#consult').hidden = false;
+  if (!consultAsked.length) resetConsult();
+  document.body.style.overflow = 'hidden';
+}
+
+function closeConsult() {
+  $('#consult').hidden = true;
+  document.body.style.overflow = '';
+}
+
+function resetConsult() {
+  consultAsked = [];
+  const log = $('#consult-log');
+  clear(log);
+  const name = state.profileName ? `${state.profileName}さん` : '';
+  log.appendChild(
+    el('div', { class: 'bubble-group' }, [
+      bubble(
+        `${name ? name + '、こんにちは。' : 'こんにちは。'}この画面では、登録された記録をもとに質問へ答えます。\n分からないことは「分からない」と答えます。`
+      ),
+      bubble('下から聞きたいことを選んでください。'),
+    ])
+  );
+  renderConsultChips();
+}
+
+function renderConsultChips() {
+  const wrap = $('#consult-chips');
+  clear(wrap);
+  for (const q of QUESTIONS) {
+    wrap.appendChild(
+      el('button', {
+        class: `consult-chip${consultAsked.includes(q.key) ? ' used' : ''}`,
+        text: q.label,
+        onclick: () => askConsult(q),
+      })
+    );
+  }
+}
+
+function askConsult(question) {
+  const log = $('#consult-log');
+  log.appendChild(el('div', { class: 'bubble-group' }, [bubble(question.label, 'me')]));
+
+  const lines = answerFor(question.key, consultContext());
+  const group = el('div', { class: 'bubble-group' }, lines.map((line) => bubble(line)));
+  log.appendChild(group);
+
+  if (!consultAsked.includes(question.key)) consultAsked.push(question.key);
+  renderConsultChips();
+  log.scrollTop = log.scrollHeight;
+}
+
+async function copyConsultPrompt() {
+  const text = buildConsultPrompt(consultContext());
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('コピーしました。ChatGPTなどに貼り付けてください');
+  } catch {
+    // クリップボードが使えない場合は選択できる形で表示する
+    const log = $('#consult-log');
+    log.appendChild(
+      el('div', { class: 'bubble-group' }, [
+        bubble('コピーできなかったので、以下を長押しして選択・コピーしてください。'),
+        bubble(text),
+      ])
+    );
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 初回セットアップ（利用者の選択）
 // ---------------------------------------------------------------------------
 
@@ -357,9 +461,18 @@ function chooseProfile(useSeed, name = '') {
 
 // --- 別の人が使う場合の初期設定（ウィザード） -------------------------------
 
-const SETUP_PAGES = 5;
+const SETUP_PAGES = 6;
 let setupPage = 1;
-const setupAnswers = { name: '', currentAverage: null, targetScore: null, days: [], minutes: 15, rangeDay: null, focus: [] };
+const setupAnswers = {
+  name: '',
+  currentAverage: null,
+  targetScore: null,
+  days: [],
+  minutes: 15,
+  rangeDay: null,
+  focus: [],
+  adviceEnabled: true,
+};
 
 function renderWeekdayPicker() {
   const wrap = $('#setup-days');
@@ -411,6 +524,11 @@ function buildSetupPlan() {
   });
 }
 
+function renderAdviceChoice() {
+  $('#setup-advice-on').classList.toggle('selected', setupAnswers.adviceEnabled);
+  $('#setup-advice-off').classList.toggle('selected', !setupAnswers.adviceEnabled);
+}
+
 function renderSetupSummary() {
   const wrap = $('#setup-summary');
   clear(wrap);
@@ -422,6 +540,13 @@ function renderSetupSummary() {
       text: `${setupAnswers.name || '(名前未設定)'}／目標 ${setupAnswers.targetScore ?? '未設定'}${
         setupAnswers.currentAverage ? `（今の平均 ${setupAnswers.currentAverage}）` : ''
       }`,
+    })
+  );
+  wrap.appendChild(
+    el('p', {
+      class: 'section-note',
+      style: 'margin-top:0',
+      text: `アドバイス：${setupAnswers.adviceEnabled ? '受け取る' : '受け取らない（数値だけ見る）'}`,
     })
   );
   for (const row of describePlan(plan)) {
@@ -446,6 +571,7 @@ function showSetupPage(page) {
   $('#setup-back').textContent = setupPage === 1 ? '選び直す' : '戻る';
   if (setupPage === 3) renderWeekdayPicker();
   if (setupPage === 4) renderFocusOptions();
+  if (setupPage === 5) renderAdviceChoice();
   if (setupPage === SETUP_PAGES) renderSetupSummary();
 }
 
@@ -489,6 +615,7 @@ function finishSetup() {
     firstStageAverage: setupAnswers.currentAverage ?? state.settings.firstStageAverage,
     practiceMinutes: setupAnswers.minutes,
     focusAreas: setupAnswers.focus,
+    adviceEnabled: setupAnswers.adviceEnabled,
     weeklyPlan: plan,
     restWeekdays: restDaysOf(plan),
   });
@@ -699,9 +826,25 @@ function findingNode(finding, { compact = false } = {}) {
   return node;
 }
 
+/** アドバイスを表示する設定か（利用者ごと） */
+function adviceEnabled() {
+  return state.settings.adviceEnabled !== false;
+}
+
+function applyAdvicePreference() {
+  const on = adviceEnabled();
+  const homeAdvice = $('#home-advice-card');
+  if (homeAdvice) homeAdvice.hidden = !on;
+  for (const id of ['#an-findings-card', '#an-watch-card', '#an-plan-card', '#an-data-card']) {
+    const node = $(id);
+    if (node) node.hidden = !on;
+  }
+}
+
 function renderHomeAdvice() {
   const wrap = $('#home-advice');
   clear(wrap);
+  if (!adviceEnabled()) return;
   const { findings } = currentDiagnosis();
   const improve = findings.filter((f) => f.level === 'improve').slice(0, 2);
   const list = improve.length ? improve : findings.slice(0, 1);
@@ -1611,11 +1754,14 @@ function renderAnalysis() {
   renderPracticeScoreRelation();
   renderCloudPanel();
   renderProfileStatus();
+  applyAdvicePreference();
 }
 
 function renderProfileStatus() {
   const wrap = $('#profile-status');
   if (!wrap) return;
+  const toggle = $('#advice-toggle');
+  if (toggle) toggle.checked = adviceEnabled();
   clear(wrap);
   const name = state.profileName || (state.useSeedData ? 'てらちゃん' : '（名前未設定）');
   const rounds = allRounds(state).length;
@@ -1633,6 +1779,12 @@ function renderProfileStatus() {
 
 /** コースレート基準の現在地・診断・変更案・必要データ */
 function renderDiagnosis() {
+  applyAdvicePreference();
+  if (!adviceEnabled()) {
+    // 数値だけを見たい設定のときは、診断まわりを組み立てない
+    renderRatingOnly();
+    return;
+  }
   const diag = currentDiagnosis();
   const s = diag.sample;
 
@@ -1670,6 +1822,25 @@ function renderDiagnosis() {
 
   renderPlanChanges(diag.planChanges);
   renderDataRequests(diag.dataRequests);
+  renderCourseStats(diag.courseStats);
+}
+
+/** アドバイスを使わない設定のとき、現在地の数値だけを出す */
+function renderRatingOnly() {
+  const diag = currentDiagnosis();
+  const s = diag.sample;
+  const ratingKpi = $('#an-rating-kpi');
+  clear(ratingKpi);
+  [
+    kpi('直近5R平均', fmt(s.avgScore5), `全期間 ${fmt(s.avgScoreAll)}`),
+    kpi('ディファレンシャル', fmt(s.avgDiff5), s.bestDiff5 !== null ? `ベスト ${s.bestDiff5}` : 'コースレート未登録'),
+    kpi('推定ハンディ', fmt(s.handicap), '参考値'),
+    kpi('スコアのレンジ', s.spread != null ? `${s.spread}打` : '—', '直近5R'),
+    kpi('パーオン率', fmt(s.girRate5, '%'), '直近5R'),
+    kpi('前半→後半', s.nineGap === null ? '—' : `${s.nineGap > 0 ? '+' : ''}${s.nineGap}打`, 'IN − OUT'),
+  ].forEach((node) => ratingKpi.appendChild(node));
+  $('#an-rating-note').textContent =
+    'ディファレンシャル＝（スコア − コースレート）× 113 ÷ スロープ。小さいほど良い数値です。';
   renderCourseStats(diag.courseStats);
 }
 
@@ -2005,6 +2176,26 @@ function bindEvents() {
     showSetupPage(1);
     $('#setup-name').focus();
   });
+  $('#setup-advice-on').addEventListener('click', () => {
+    setupAnswers.adviceEnabled = true;
+    renderAdviceChoice();
+    showSetupPage(setupPage + 1);
+  });
+  $('#setup-advice-off').addEventListener('click', () => {
+    setupAnswers.adviceEnabled = false;
+    renderAdviceChoice();
+    showSetupPage(setupPage + 1);
+  });
+  $('#advice-toggle').addEventListener('change', (e) => {
+    state.settings = stamp({ ...state.settings, adviceEnabled: e.target.checked });
+    persist(e.target.checked ? 'アドバイスを表示します' : '数値だけを表示します');
+    renderAnalysis();
+  });
+  $('#open-consult').addEventListener('click', openConsult);
+  $('#consult-close').addEventListener('click', closeConsult);
+  $('#consult-reset').addEventListener('click', resetConsult);
+  $('#consult-copy').addEventListener('click', copyConsultPrompt);
+
   $('#setup-next').addEventListener('click', () => {
     collectSetupPage();
     if (!validateSetupPage()) return;

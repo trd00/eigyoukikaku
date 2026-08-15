@@ -966,6 +966,131 @@ details.group > .group-body {
   color: var(--lime);
 }
 
+/* ---------- 相談画面 ---------- */
+.consult {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: var(--navy);
+  display: flex;
+  flex-direction: column;
+}
+
+.consult[hidden] {
+  display: none;
+}
+
+.consult-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 10px) 12px 10px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.consult-title {
+  flex: 1 1 auto;
+  text-align: center;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.consult-close,
+.consult-reset {
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 8px;
+  flex: 0 0 auto;
+}
+
+.consult-close {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--off);
+  width: 44px;
+}
+
+.consult-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 14px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bubble {
+  max-width: 88%;
+  padding: 11px 14px;
+  border-radius: 16px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble.app {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.me {
+  background: var(--lime);
+  color: #10261a;
+  font-weight: 700;
+  margin-left: auto;
+  border-bottom-right-radius: 4px;
+}
+
+.bubble-group {
+  margin-bottom: 14px;
+}
+
+.bubble-group .bubble:last-child {
+  margin-bottom: 0;
+}
+
+.consult-foot {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  background: var(--navy-2);
+  padding: 10px 12px calc(env(safe-area-inset-bottom) + 12px);
+}
+
+.consult-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.consult-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.consult-chip {
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--off);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  flex: 0 0 auto;
+}
+
+.consult-chip.used {
+  opacity: 0.55;
+}
+
 /* ---------- 初回セットアップ ---------- */
 .setup {
   position: fixed;
