@@ -1254,6 +1254,19 @@ details.group > .group-body {
   overflow-y: auto;
 }
 
+/* AI利用時：例は横1行だけにして、入力欄と本文の場所を空ける */
+.consult-chips.compact {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  max-height: none;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.consult-chips.compact::-webkit-scrollbar {
+  display: none;
+}
+
 .consult-chip {
   min-height: 40px;
   border-radius: 999px;
@@ -1268,6 +1281,72 @@ details.group > .group-body {
 
 .consult-chip.used {
   opacity: 0.55;
+}
+
+/* AIへ自由に書いて送る欄。キー未設定のときは hidden で出さない。 */
+.consult-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.consult-composer[hidden] {
+  display: none;
+}
+
+.consult-composer textarea {
+  flex: 1 1 auto;
+  min-height: 44px;
+  max-height: 120px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--off);
+  font-size: 16px; /* 16px未満だとiOSが入力時に拡大する */
+  line-height: 1.5;
+  padding: 11px 14px;
+  resize: none;
+}
+
+.consult-send,
+.consult-stop {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.consult-send {
+  background: var(--lime);
+  color: #10261a;
+}
+
+.consult-send:disabled {
+  opacity: 0.45;
+}
+
+.consult-stop {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--off);
+}
+
+.consult-stop[hidden] {
+  display: none;
+}
+
+.bubble.thinking {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.bubble.error {
+  border-color: var(--missed);
+  color: var(--missed);
 }
 
 /* ---------- 初回セットアップ ---------- */

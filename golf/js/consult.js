@@ -245,7 +245,10 @@ const ANSWERS = {
  * 外部のAIに相談するための文章を組み立てる。
  * 数値だけを渡し、指示はユーザーが自分で書ける形にしておく。
  */
-export function buildConsultPrompt({ state, stats, practice, diagnosis, booking, today, rounds = [] }) {
+export function buildConsultPrompt(
+  { state, stats, practice, diagnosis, booking, today, rounds = [] },
+  { includeQuestionSlot = true } = {}
+) {
   const lines = [];
   lines.push('ゴルフのスコアについて相談します。以下は私の記録です。');
   lines.push('');
@@ -340,8 +343,10 @@ export function buildConsultPrompt({ state, stats, practice, diagnosis, booking,
     }
   }
 
-  lines.push('');
-  lines.push('【聞きたいこと】');
-  lines.push('（ここに質問を書いてください。例：この数値から、次の1か月で何を優先すべきですか）');
+  if (includeQuestionSlot) {
+    lines.push('');
+    lines.push('【聞きたいこと】');
+    lines.push('（ここに質問を書いてください。例：この数値から、次の1か月で何を優先すべきですか）');
+  }
   return lines.join('\n');
 }

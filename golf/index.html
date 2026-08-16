@@ -189,6 +189,7 @@
           <p class="card-title">相談する</p>
           <p class="section-note" style="margin-top: 0">
             自分の記録をもとに答えます。数字の意味が分からないとき、何をすればいいか迷ったときに使ってください。
+            分析タブでAPIキーを登録すると、思ったままの文章で質問できるようになります。
           </p>
           <button class="btn-primary" id="open-consult" style="width: 100%; margin-top: 10px">
             相談をひらく
@@ -673,6 +674,41 @@
         </section>
 
         <section class="card">
+          <p class="card-title">AIに相談する設定</p>
+          <div id="ai-status"></div>
+          <details class="group" id="ai-setup-group" style="margin-top: 10px">
+            <summary>APIキーを登録する</summary>
+            <div class="group-body">
+              <p class="section-note" style="margin-top: 0">
+                登録すると、相談画面で自由に文章を書いて質問できるようになります。未登録のままでも、選択式の質問には
+                これまでどおり答えます（こちらは通信しません）。
+              </p>
+              <p class="section-note">
+                キーは <b>console.anthropic.com</b> で自分のアカウントを作り、「API keys」から発行します。
+                発行したキーはこの端末にだけ保存され、クラウド同期には載せません。他人に見せないでください。
+              </p>
+              <p class="section-note">
+                質問するたびに、その時点の記録の要約（スコア・練習・メモ）がAIへ送られ、
+                <b>自分のアカウントに料金がかかります</b>。1回あたり数円程度ですが、無料ではありません。
+              </p>
+              <div class="field">
+                <label for="ai-key">APIキー</label>
+                <input type="password" id="ai-key" placeholder="sk-ant-..." autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="ai-model">使うモデル</label>
+                <select id="ai-model"></select>
+              </div>
+              <p class="section-note" id="ai-price"></p>
+              <div class="btn-row">
+                <button class="btn-ghost" id="ai-key-clear" type="button">キーを消す</button>
+                <button class="btn-primary" id="ai-key-save" type="button">保存する</button>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="card">
           <p class="card-title">利用者</p>
           <div id="profile-status"></div>
           <label class="focus-option" style="margin-top: 12px">
@@ -691,7 +727,8 @@
         <section class="card">
           <p class="card-title">データ管理</p>
           <p class="section-note" style="margin-top: 0">
-            入力データはこの端末のブラウザ内だけに保存され、外部へは送信されません。機種変更やブラウザ履歴の削除で消えるため、時々バックアップを取ってください。
+            入力データはこの端末のブラウザ内だけに保存されます。外部へ出るのは、クラウド同期を設定したときと、AIに相談したとき（記録の要約のみ）だけです。
+            機種変更やブラウザ履歴の削除で消えるため、時々バックアップを取ってください。
           </p>
           <div class="btn-row" style="margin-top: 10px">
             <button id="data-export">JSONを書き出す</button>
@@ -750,8 +787,18 @@
       </div>
       <div class="consult-log" id="consult-log"></div>
       <div class="consult-foot">
-        <p class="consult-hint">聞きたいことを選んでください</p>
+        <p class="consult-hint" id="consult-hint">聞きたいことを選んでください</p>
         <div class="consult-chips" id="consult-chips"></div>
+        <form class="consult-composer" id="consult-composer" hidden>
+          <textarea
+            id="consult-input"
+            rows="1"
+            placeholder="聞きたいことを書いてください"
+            enterkeyhint="send"
+          ></textarea>
+          <button class="consult-send" id="consult-send" type="submit" aria-label="送信">送信</button>
+          <button class="consult-stop" id="consult-stop" type="button" hidden>止める</button>
+        </form>
         <button class="btn-small" id="consult-copy" style="width: 100%; margin-top: 8px">
           この内容をコピー（ChatGPTなどに貼る用）
         </button>

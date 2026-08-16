@@ -55,6 +55,7 @@ import { CLUBS } from './seed.js';
 import * as cloud from './cloud.js';
 import { FOCUS_OPTIONS, buildWeeklyPlan, describePlan, restDaysOf } from './plan.js';
 import { QUESTIONS, answerFor, buildConsultPrompt } from './consult.js';
+import * as ai from './ai.js';
 import { memoFeedback } from './feedback.js';
 import { mergeStates, stamp } from './merge.js';
 
@@ -191,6 +192,57 @@ async function startCloud() {
       renderCloudPanel();
     }
   });
+}
+
+function renderAiPanel() {
+  const wrap = $('#ai-status');
+  if (!wrap) return;
+  clear(wrap);
+
+  const config = ai.loadAiConfig();
+  const select = $('#ai-model');
+  if (select && !select.options.length) {
+    for (const model of ai.MODELS) {
+      select.appendChild(el('option', { value: model.id, text: model.label }));
+    }
+  }
+  if (select) select.value = config.model;
+  renderAiPrice();
+
+  if (!config.apiKey) {
+    wrap.appendChild(
+      el('p', {
+        class: 'section-note',
+        style: 'margin-top:0',
+        text: 'AIへの相談は未設定です。設定すると、相談画面で自由に文章を書いて質問できるようになります。未設定でも、選択式の質問には端末内の計算で答えます。',
+      })
+    );
+    return;
+  }
+
+  const model = ai.MODELS.find((m) => m.id === config.model);
+  wrap.appendChild(el('p', { class: 'cloud-state', html: '状態：<b>登録済み</b>' }));
+  wrap.appendChild(
+    el('p', {
+      class: 'section-note',
+      style: 'margin-top:0',
+      text: `キー：${ai.maskKey(config.apiKey)} ／ モデル：${model ? model.label : config.model}`,
+    })
+  );
+  wrap.appendChild(
+    el('p', {
+      class: 'section-note',
+      text: '相談画面に文章の入力欄が出ます。質問するたびに記録の要約が送られ、自分のアカウントに料金がかかります。',
+    })
+  );
+}
+
+function renderAiPrice() {
+  const note = $('#ai-price');
+  const select = $('#ai-model');
+  if (!note || !select) return;
+  const model = ai.MODELS.find((m) => m.id === select.value);
+  note.textContent = model ? `料金の目安：${model.price}（100万トークンあたり）` : '';
 }
 
 function renderCloudPanel() {
@@ -344,6 +396,9 @@ async function doDeleteCloud() {
 // ---------------------------------------------------------------------------
 
 let consultAsked = [];
+let aiHistory = [];
+let aiRunning = null; // 送信中の AbortController
+let consultMode = null; // 直前に描画したときAIが有効だったか
 
 function consultContext() {
   const rounds = allRounds(state);
@@ -370,45 +425,92 @@ function bubble(text, who = 'app') {
   return el('div', { class: `bubble ${who}`, text });
 }
 
+function aiOn() {
+  return ai.isAiConfigured();
+}
+
+function scrollConsult() {
+  const log = $('#consult-log');
+  log.scrollTop = log.scrollHeight;
+}
+
 function openConsult() {
   $('#consult').hidden = false;
-  if (!consultAsked.length) resetConsult();
+  const modeChanged = consultMode !== null && consultMode !== aiOn();
+  applyConsultMode();
+  // キーを登録した直後は、案内文が変わるので最初からやり直す
+  if (modeChanged || (!consultAsked.length && !aiHistory.length)) resetConsult();
   document.body.style.overflow = 'hidden';
 }
 
 function closeConsult() {
+  if (aiRunning) aiRunning.abort();
   $('#consult').hidden = true;
   document.body.style.overflow = '';
 }
 
+/** キーの有無で、自由入力を出すかどうかを切り替える */
+function applyConsultMode() {
+  const on = aiOn();
+  consultMode = on;
+  $('#consult-composer').hidden = !on;
+  $('#consult-hint').textContent = on
+    ? '思ったままの言葉で書いてください（例をタップすると文が入ります）'
+    : '聞きたいことを選んでください';
+  // AIがあるときは入力欄が主役なので、例は1行に畳んで横に流す
+  $('#consult-chips').classList.toggle('compact', on);
+  renderConsultChips();
+}
+
 function resetConsult() {
+  if (aiRunning) aiRunning.abort();
   consultAsked = [];
+  aiHistory = [];
   const log = $('#consult-log');
   clear(log);
   const name = state.profileName ? `${state.profileName}さん` : '';
-  log.appendChild(
-    el('div', { class: 'bubble-group' }, [
-      bubble(
-        `${name ? name + '、こんにちは。' : 'こんにちは。'}この画面では、登録された記録をもとに質問へ答えます。\n分からないことは「分からない」と答えます。`
-      ),
-      bubble('下から聞きたいことを選んでください。'),
-    ])
-  );
+  const greeting = `${name ? name + '、こんにちは。' : 'こんにちは。'}`;
+  const bubbles = aiOn()
+    ? [
+        bubble(`${greeting}登録された記録を読んだうえで答えます。\n記録に無いことは、無いと答えます。`),
+        bubble('スコアでも練習でも、思ったままの言葉で書いてください。'),
+      ]
+    : [
+        bubble(`${greeting}この画面では、登録された記録をもとに質問へ答えます。\n分からないことは「分からない」と答えます。`),
+        bubble('下から聞きたいことを選んでください。'),
+      ];
+  log.appendChild(el('div', { class: 'bubble-group' }, bubbles));
   renderConsultChips();
 }
 
 function renderConsultChips() {
   const wrap = $('#consult-chips');
+  if (!wrap) return;
+  const on = aiOn();
   clear(wrap);
   for (const q of QUESTIONS) {
     wrap.appendChild(
       el('button', {
-        class: `consult-chip${consultAsked.includes(q.key) ? ' used' : ''}`,
+        class: `consult-chip${!on && consultAsked.includes(q.key) ? ' used' : ''}`,
+        type: 'button',
         text: q.label,
-        onclick: () => askConsult(q),
+        onclick: () => (on ? fillConsultInput(q.label) : askConsult(q)),
       })
     );
   }
+}
+
+function fillConsultInput(text) {
+  const input = $('#consult-input');
+  input.value = text;
+  autoGrowConsultInput();
+  input.focus();
+}
+
+function autoGrowConsultInput() {
+  const input = $('#consult-input');
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
 }
 
 function askConsult(question) {
@@ -421,7 +523,111 @@ function askConsult(question) {
 
   if (!consultAsked.includes(question.key)) consultAsked.push(question.key);
   renderConsultChips();
-  log.scrollTop = log.scrollHeight;
+  scrollConsult();
+}
+
+// ---------------------------------------------------------------------------
+// AIへの相談（自由入力）
+// ---------------------------------------------------------------------------
+
+function setConsultBusy(busy) {
+  $('#consult-send').disabled = busy;
+  $('#consult-stop').hidden = !busy;
+  $('#consult-input').disabled = busy;
+}
+
+async function sendConsult(event) {
+  if (event) event.preventDefault();
+  if (aiRunning) return;
+
+  const input = $('#consult-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const config = ai.loadAiConfig();
+  if (!config.apiKey) {
+    applyConsultMode();
+    return;
+  }
+
+  const log = $('#consult-log');
+  log.appendChild(el('div', { class: 'bubble-group' }, [bubble(text, 'me')]));
+  input.value = '';
+  autoGrowConsultInput();
+  scrollConsult();
+
+  const answer = bubble('', 'app');
+  answer.classList.add('thinking');
+  answer.textContent = '考えています…';
+  log.appendChild(el('div', { class: 'bubble-group' }, [answer]));
+  scrollConsult();
+
+  aiHistory.push({ role: 'user', content: text });
+  const controller = new AbortController();
+  aiRunning = controller;
+  setConsultBusy(true);
+
+  let received = '';
+  try {
+    const record = buildConsultPrompt(consultContext(), { includeQuestionSlot: false });
+    const full = await ai.streamMessage({
+      apiKey: config.apiKey,
+      model: config.model,
+      system: ai.buildSystemPrompt(record, { today }),
+      messages: ai.trimHistory(aiHistory),
+      signal: controller.signal,
+      onDelta: (piece) => {
+        if (!received) {
+          answer.classList.remove('thinking');
+          answer.textContent = '';
+        }
+        received += piece;
+        answer.textContent = received;
+        scrollConsult();
+      },
+    });
+    const finalText = (full || received).trim();
+    if (finalText) {
+      answer.classList.remove('thinking');
+      answer.textContent = finalText;
+      aiHistory.push({ role: 'assistant', content: finalText });
+    } else {
+      answer.classList.remove('thinking');
+      answer.classList.add('error');
+      answer.textContent = '空の回答が返りました。もう一度送ってみてください。';
+      aiHistory.pop();
+    }
+  } catch (error) {
+    answer.classList.remove('thinking');
+    if (received) {
+      // 途中まで届いていれば、それは残して中断だけを伝える
+      answer.textContent = received;
+      aiHistory.push({ role: 'assistant', content: received });
+      log.appendChild(
+        el('div', { class: 'bubble-group' }, [withClass(bubble(ai.describeAiError(error)), 'error')])
+      );
+    } else {
+      answer.classList.add('error');
+      answer.textContent = ai.describeAiError(error);
+      aiHistory.pop();
+      if (error?.kind === 'network' || error?.name === 'AbortError') {
+        log.appendChild(
+          el('div', { class: 'bubble-group' }, [
+            bubble('通信を使わない選択式の質問なら、下のボタンからそのまま答えられます。'),
+          ])
+        );
+      }
+    }
+  } finally {
+    aiRunning = null;
+    setConsultBusy(false);
+    scrollConsult();
+  }
+}
+
+function withClass(node, name) {
+  node.classList.add(name);
+  return node;
 }
 
 async function copyConsultPrompt() {
@@ -1924,6 +2130,7 @@ function renderAnalysis() {
 
   renderPracticeScoreRelation();
   renderCloudPanel();
+  renderAiPanel();
   renderProfileStatus();
   applyAdvicePreference();
 }
@@ -2375,6 +2582,48 @@ function bindEvents() {
   $('#consult-close').addEventListener('click', closeConsult);
   $('#consult-reset').addEventListener('click', resetConsult);
   $('#consult-copy').addEventListener('click', copyConsultPrompt);
+  $('#consult-composer').addEventListener('submit', sendConsult);
+  $('#consult-stop').addEventListener('click', () => {
+    if (aiRunning) aiRunning.abort();
+  });
+  $('#consult-input').addEventListener('input', autoGrowConsultInput);
+  $('#consult-input').addEventListener('keydown', (e) => {
+    // 物理キーボード（iPad・PC）はEnterで送信。改行はShift+Enter。
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      sendConsult();
+    }
+  });
+
+  // AIの設定
+  $('#ai-model').addEventListener('change', renderAiPrice);
+  $('#ai-key-save').addEventListener('click', () => {
+    const value = $('#ai-key').value.trim();
+    if (!value) {
+      toast('APIキーを貼り付けてください', true);
+      return;
+    }
+    if (!ai.looksLikeKey(value)) {
+      toast('キーの形式が違うようです（sk-ant- で始まります）', true);
+      return;
+    }
+    ai.saveAiConfig({ apiKey: value, model: $('#ai-model').value });
+    $('#ai-key').value = '';
+    $('#ai-setup-group').open = false;
+    renderAiPanel();
+    applyConsultMode();
+    resetConsult();
+    toast('保存しました。相談画面で文章を書けます');
+  });
+  $('#ai-key-clear').addEventListener('click', () => {
+    if (!window.confirm('APIキーを削除します。相談画面は選択式に戻ります。よろしいですか？')) return;
+    ai.clearAiConfig();
+    $('#ai-key').value = '';
+    renderAiPanel();
+    applyConsultMode();
+    resetConsult();
+    toast('APIキーを削除しました');
+  });
 
   $('#setup-next').addEventListener('click', () => {
     collectSetupPage();
