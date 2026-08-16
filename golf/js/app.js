@@ -1140,22 +1140,41 @@ function renderHomeAdvice() {
   );
 }
 
-/** メモを保存したときの応答。どこに保存されたかも必ず伝える。 */
-function renderMemoFeedback(record) {
-  const wrap = $('#home-memo-feedback');
-  if (!wrap) return;
-  clear(wrap);
-
+/**
+ * メモに対する応答を作って、その日の記録に残す。
+ * 応答は毎回組み立て直すと、あとから読んだとき当時と違う文になる。
+ * 書いた本人にとっては当時のやり取りが資料なので、保存した文をそのまま残す。
+ */
+function saveMemoFeedback(record, date) {
+  if (!(record.memo || '').trim()) return null;
   const { headline, lines } = memoFeedback({
     memo: record.memo,
     record,
     settings: state.settings,
     records: dailyList(state),
-    today,
+    today: date,
   });
+  record.feedback = { headline, lines, at: date, source: 'local' };
+  return record.feedback;
+}
 
-  const box = el('div', { class: 'feedback' }, [el('p', { class: 'feedback-head', text: headline })]);
-  for (const line of lines) box.appendChild(el('p', { text: line }));
+/** 保存済みの応答を、読み返せる形にして返す */
+function feedbackBox(feedback, { compact = false } = {}) {
+  const box = el('div', { class: `feedback${compact ? ' compact' : ''}` }, [
+    el('p', { class: 'feedback-head', text: feedback.headline }),
+  ]);
+  for (const line of feedback.lines) box.appendChild(el('p', { text: line }));
+  return box;
+}
+
+/** メモを保存したときの応答。どこに保存されたかも必ず伝える。 */
+function renderMemoFeedback(record) {
+  const wrap = $('#home-memo-feedback');
+  if (!wrap) return;
+  clear(wrap);
+  if (!record.feedback) return;
+
+  const box = feedbackBox(record.feedback);
   box.appendChild(
     el('p', {
       class: 'section-note',
@@ -1345,16 +1364,19 @@ function renderMemoList() {
     const w = weekday(item.date);
     const menu = effectiveMenu(w, state.planOverrides, state.settings.weeklyPlan);
     const status = item.status || 'none';
-    wrap.appendChild(
-      el('button', { class: 'memo-item', onclick: () => openSheet(item.date) }, [
+    const node = el('div', { class: 'memo-item' }, [
+      el('button', { class: 'memo-open', onclick: () => openSheet(item.date) }, [
         el('div', { class: 'memo-item-head' }, [
           el('span', { class: `memo-mark ${status}`, text: STATUS_MARKS[status] || '·' }),
           el('span', { class: 'memo-date', text: formatShort(item.date) }),
           el('span', { class: 'memo-menu', text: menu.title }),
         ]),
         el('span', { class: 'memo-text', text: item.memo }),
-      ])
-    );
+      ]),
+    ]);
+    // そのとき返した内容をそのまま残す（あとから読み返すための資料）
+    if (item.feedback) node.appendChild(feedbackBox(item.feedback, { compact: true }));
+    wrap.appendChild(node);
   }
   if (items.length > 30) {
     wrap.appendChild(el('p', { class: 'section-note', text: `他 ${items.length - 30} 件はカレンダーから見られます。` }));
@@ -1397,6 +1419,10 @@ function renderSheet() {
     );
   }
   $('#sheet-memo').value = record?.memo || '';
+
+  const feedWrap = $('#sheet-feedback');
+  clear(feedWrap);
+  if (record?.feedback) feedWrap.appendChild(feedbackBox(record.feedback, { compact: true }));
 }
 
 // ---------------------------------------------------------------------------
@@ -2622,6 +2648,8 @@ function bindEvents() {
     rec.fatigue = $('#home-fatigue').value ? Number($('#home-fatigue').value) : undefined;
     rec.pain = $('#home-pain').value;
     rec.memo = $('#home-memo').value.trim();
+    if (rec.memo) saveMemoFeedback(rec, today);
+    else delete rec.feedback;
     state.daily[today] = stamp(rec);
     persist('メモを保存しました');
     renderSavedState('#home-memo-state', state.daily[today].updatedAt, { prefix: 'このメモは保存済み' });
@@ -2658,8 +2686,13 @@ function bindEvents() {
       const memo = $('#sheet-memo').value.trim();
       if (memo || state.daily[sheetDate]) {
         const rec = ensureDaily(sheetDate);
+        const changed = rec.memo !== memo;
         rec.memo = memo;
+        if (!memo) delete rec.feedback;
+        else if (changed || !rec.feedback) saveMemoFeedback(rec, sheetDate);
+        state.daily[sheetDate] = stamp(rec);
         saveState(state);
+        renderMemoList();
       }
     }
     closeSheet();

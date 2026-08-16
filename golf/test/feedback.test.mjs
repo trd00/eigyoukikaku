@@ -124,3 +124,29 @@ test('2日以上続いていれば見出しに日数を出す', () => {
   const r = fb({ memo: 'よし', records });
   assert.match(r.headline, /2日続いています/);
 });
+
+test('過去形の「〜ていた」を痛みと取り違えない', () => {
+  const { lines } = memoFeedback({
+    memo: 'ボール位置を右に置きすぎていた。7Iで軌道がインアウトになる感じ。',
+    record: { status: 'done', pain: 'none' },
+    settings: {},
+    records: [],
+    today: '2026-08-16',
+  });
+  const text = lines.join('\n');
+  assert.doesNotMatch(text, /違和感|痛み/);
+  assert.match(text, /軌道/, '書かれている話題（軌道）を拾う');
+});
+
+test('痛みを表す語はこれまでどおり拾う', () => {
+  for (const memo of ['右肘が痛い', '腰に張りがある', '手がしびれる感じ']) {
+    const { lines } = memoFeedback({
+      memo,
+      record: { status: 'done', pain: 'none' },
+      settings: {},
+      records: [],
+      today: '2026-08-16',
+    });
+    assert.match(lines.join('\n'), /体の違和感/, memo);
+  }
+});
