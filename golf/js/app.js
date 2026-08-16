@@ -200,16 +200,19 @@ function renderAiPanel() {
   clear(wrap);
 
   const config = ai.loadAiConfig();
-  const select = $('#ai-model');
-  if (select && !select.options.length) {
-    for (const model of ai.MODELS) {
-      select.appendChild(el('option', { value: model.id, text: model.label }));
+  const active = ai.activeConfig(config);
+
+  const providerSelect = $('#ai-provider');
+  if (providerSelect && !providerSelect.options.length) {
+    for (const provider of ai.PROVIDER_LIST) {
+      providerSelect.appendChild(el('option', { value: provider.id, text: provider.label }));
     }
   }
-  if (select) select.value = config.model;
-  renderAiPrice();
+  if (providerSelect) providerSelect.value = active.provider.id;
+  renderAiProviderNote();
+  fillModelSelect(active.models, active.model);
 
-  if (!config.apiKey) {
+  if (!active.apiKey) {
     wrap.appendChild(
       el('p', {
         class: 'section-note',
@@ -220,29 +223,61 @@ function renderAiPanel() {
     return;
   }
 
-  const model = ai.MODELS.find((m) => m.id === config.model);
   wrap.appendChild(el('p', { class: 'cloud-state', html: '状態：<b>登録済み</b>' }));
   wrap.appendChild(
     el('p', {
       class: 'section-note',
       style: 'margin-top:0',
-      text: `キー：${ai.maskKey(config.apiKey)} ／ モデル：${model ? model.label : config.model}`,
+      text: `${active.provider.label} ／ キー：${ai.maskKey(active.apiKey)} ／ モデル：${active.model}`,
     })
   );
   wrap.appendChild(
     el('p', {
       class: 'section-note',
-      text: '相談画面に文章の入力欄が出ます。質問するたびに記録の要約が送られ、自分のアカウントに料金がかかります。',
+      text: '相談画面に文章の入力欄が出ます。質問するたびに、その時点の記録の要約が送られます。',
     })
   );
 }
 
-function renderAiPrice() {
-  const note = $('#ai-price');
-  const select = $('#ai-model');
+/** 選んだ会社の、キーの取り方と料金の説明を出す */
+function renderAiProviderNote() {
+  const note = $('#ai-provider-note');
+  const select = $('#ai-provider');
   if (!note || !select) return;
-  const model = ai.MODELS.find((m) => m.id === select.value);
-  note.textContent = model ? `料金の目安：${model.price}（100万トークンあたり）` : '';
+  const provider = ai.providerOf(select.value);
+  clear(note);
+  note.appendChild(el('span', { text: provider.keyHelp }));
+  note.appendChild(el('br'));
+  note.appendChild(el('span', { text: provider.costNote }));
+  note.appendChild(el('br'));
+  note.appendChild(el('span', { text: provider.subscriptionNote }));
+  $('#ai-key').placeholder = provider.keyPlaceholder;
+}
+
+function fillModelSelect(models, selected) {
+  const select = $('#ai-model');
+  if (!select) return;
+  clear(select);
+  for (const model of models) {
+    select.appendChild(el('option', { value: model.id, text: model.label }));
+  }
+  if (models.some((m) => m.id === selected)) select.value = selected;
+}
+
+/** キーを保存したあと、そのアカウントで実際に使えるモデルを取りに行く */
+async function refreshAiModels(providerId, apiKey) {
+  try {
+    const models = await ai.fetchModels({ providerId, apiKey });
+    if (!models.length) return;
+    const config = ai.loadAiConfig();
+    config.modelLists[providerId] = models;
+    if (!models.some((m) => m.id === config.models[providerId])) delete config.models[providerId];
+    ai.saveAiConfig(config);
+    renderAiPanel();
+  } catch (error) {
+    // 一覧が取れなくても、既定の名前で送れば動く
+    toast(ai.describeAiError(error), true);
+  }
 }
 
 function renderCloudPanel() {
@@ -544,8 +579,8 @@ async function sendConsult(event) {
   const text = input.value.trim();
   if (!text) return;
 
-  const config = ai.loadAiConfig();
-  if (!config.apiKey) {
+  const active = ai.activeConfig();
+  if (!active.apiKey) {
     applyConsultMode();
     return;
   }
@@ -571,8 +606,9 @@ async function sendConsult(event) {
   try {
     const record = buildConsultPrompt(consultContext(), { includeQuestionSlot: false });
     const full = await ai.streamMessage({
-      apiKey: config.apiKey,
-      model: config.model,
+      providerId: active.provider.id,
+      apiKey: active.apiKey,
+      model: active.model,
       system: ai.buildSystemPrompt(record, { today }),
       messages: ai.trimHistory(aiHistory),
       signal: controller.signal,
@@ -2596,28 +2632,49 @@ function bindEvents() {
   });
 
   // AIの設定
-  $('#ai-model').addEventListener('change', renderAiPrice);
+  $('#ai-provider').addEventListener('change', () => {
+    const config = ai.loadAiConfig();
+    config.provider = $('#ai-provider').value;
+    ai.saveAiConfig(config);
+    $('#ai-key').value = '';
+    renderAiPanel();
+    applyConsultMode();
+  });
+  $('#ai-model').addEventListener('change', () => {
+    const config = ai.loadAiConfig();
+    config.models[config.provider] = $('#ai-model').value;
+    ai.saveAiConfig(config);
+    renderAiPanel();
+  });
   $('#ai-key-save').addEventListener('click', () => {
+    const providerId = $('#ai-provider').value;
+    const provider = ai.providerOf(providerId);
     const value = $('#ai-key').value.trim();
     if (!value) {
       toast('APIキーを貼り付けてください', true);
       return;
     }
-    if (!ai.looksLikeKey(value)) {
-      toast('キーの形式が違うようです（sk-ant- で始まります）', true);
+    if (!ai.looksLikeKey(value, providerId)) {
+      toast(`キーの形式が違うようです（${provider.keyPlaceholder} の形）`, true);
       return;
     }
-    ai.saveAiConfig({ apiKey: value, model: $('#ai-model').value });
+    const config = ai.loadAiConfig();
+    config.provider = providerId;
+    config.keys[providerId] = value;
+    config.models[providerId] = $('#ai-model').value;
+    ai.saveAiConfig(config);
     $('#ai-key').value = '';
     $('#ai-setup-group').open = false;
     renderAiPanel();
     applyConsultMode();
     resetConsult();
     toast('保存しました。相談画面で文章を書けます');
+    refreshAiModels(providerId, value);
   });
   $('#ai-key-clear').addEventListener('click', () => {
-    if (!window.confirm('APIキーを削除します。相談画面は選択式に戻ります。よろしいですか？')) return;
-    ai.clearAiConfig();
+    const providerId = $('#ai-provider').value;
+    if (!window.confirm(`${ai.providerOf(providerId).label} のAPIキーを削除します。よろしいですか？`)) return;
+    ai.clearAiConfig(providerId);
     $('#ai-key').value = '';
     renderAiPanel();
     applyConsultMode();

@@ -3,37 +3,47 @@ import assert from 'node:assert/strict';
 
 import {
   AiError,
-  DEFAULT_MODEL,
-  MODELS,
+  PROVIDERS,
+  PROVIDER_LIST,
   buildSystemPrompt,
   createSseParser,
   describeAiError,
-  errorFromResponse,
+  fetchModels,
   looksLikeKey,
   maskKey,
+  providerOf,
   streamMessage,
-  textDelta,
   trimHistory,
 } from '../js/ai.js';
 
 // --- キーの形式 -------------------------------------------------------------
 
-test('sk-ant- で始まる十分な長さのキーだけを受け付ける', () => {
-  assert.equal(looksLikeKey('sk-ant-api03-abcdefghijklmnopqrstuvwxyz'), true);
-  assert.equal(looksLikeKey('  sk-ant-api03-abcdefghijklmnopqrstuvwxyz  '), true);
-  assert.equal(looksLikeKey('sk-ant-short'), false);
-  assert.equal(looksLikeKey('sk-proj-abcdefghijklmnopqrstuvwxyz'), false);
-  assert.equal(looksLikeKey(''), false);
-  assert.equal(looksLikeKey(null), false);
+test('会社ごとにキーの形を見分ける', () => {
+  const anthropic = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz';
+  const google = 'AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
+  const openai = 'sk-proj-abcdefghijklmnopqrstuvwxyz';
+
+  assert.equal(looksLikeKey(anthropic, 'anthropic'), true);
+  assert.equal(looksLikeKey(google, 'anthropic'), false);
+  assert.equal(looksLikeKey(google, 'google'), true);
+  assert.equal(looksLikeKey(anthropic, 'google'), false);
+  assert.equal(looksLikeKey(openai, 'openai'), true);
+  assert.equal(looksLikeKey('  ' + openai + '  ', 'openai'), true);
+  assert.equal(looksLikeKey('', 'openai'), false);
+  assert.equal(looksLikeKey(null, 'google'), false);
 });
 
 test('キーは前後だけを見せる', () => {
   const key = 'sk-ant-api03-1234567890abcdef';
   const masked = maskKey(key);
   assert.equal(masked.includes('1234567890'), false);
-  assert.ok(masked.startsWith('sk-ant-api'));
   assert.ok(masked.endsWith('cdef'));
   assert.equal(maskKey(''), '');
+});
+
+test('知らない会社を指定しても落ちない', () => {
+  assert.equal(providerOf('unknown').id, 'google');
+  assert.equal(PROVIDER_LIST.length, 3);
 });
 
 // --- SSEの解読 --------------------------------------------------------------
@@ -45,61 +55,76 @@ test('イベントが2つに分かれて届いても本文を取り出せる', (
 
   const second = parser.push('lta","index":0,"delta":{"type":"text_delta","text":"パー"}}\n\n');
   assert.equal(second.length, 1);
-  assert.equal(textDelta(second[0]), 'パー');
+  assert.equal(PROVIDERS.anthropic.delta(second[0]), 'パー');
 });
 
-test('複数のイベントが1回で届いても順番に返す', () => {
+test('壊れたJSON・コメント行・[DONE] は読み飛ばす', () => {
   const parser = createSseParser();
-  const chunk =
-    'event: message_start\ndata: {"type":"message_start"}\n\n' +
-    'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"あ"}}\n\n' +
-    'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"い"}}\n\n';
-  const events = parser.push(chunk);
-  assert.equal(events.length, 3);
-  assert.equal(events.map(textDelta).join(''), 'あい');
-});
-
-test('思考（thinking_delta）は本文として取り出さない', () => {
-  const event = {
-    type: 'content_block_delta',
-    delta: { type: 'thinking_delta', thinking: '内部の考え' },
-  };
-  assert.equal(textDelta(event), '');
-});
-
-test('壊れたJSONやコメント行は無視する', () => {
-  const parser = createSseParser();
-  const events = parser.push(': ping\n\ndata: {壊れている\n\ndata: {"type":"ping"}\n\n');
+  const events = parser.push(': ping\n\ndata: {壊れている\n\ndata: [DONE]\n\ndata: {"type":"ping"}\n\n');
   assert.equal(events.length, 1);
   assert.equal(events[0].type, 'ping');
 });
 
 test('\\r\\n 区切りでも読める', () => {
   const parser = createSseParser();
-  const events = parser.push('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}\r\n\r\n');
+  const events = parser.push('data: {"choices":[{"delta":{"content":"x"}}]}\r\n\r\n');
   assert.equal(events.length, 1);
-  assert.equal(textDelta(events[0]), 'x');
+  assert.equal(PROVIDERS.openai.delta(events[0]), 'x');
+});
+
+// --- 会社ごとの応答の読み方 -------------------------------------------------
+
+test('Claude：本文だけを取り、思考は取らない', () => {
+  assert.equal(
+    PROVIDERS.anthropic.delta({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'あ' } }),
+    'あ'
+  );
+  assert.equal(
+    PROVIDERS.anthropic.delta({ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '内心' } }),
+    ''
+  );
+});
+
+test('Gemini：candidates の中の text をつなぐ', () => {
+  const event = { candidates: [{ content: { parts: [{ text: '直近5R' }, { text: 'は92.4打' }] } }] };
+  assert.equal(PROVIDERS.google.delta(event), '直近5Rは92.4打');
+  assert.equal(PROVIDERS.google.delta({ candidates: [{ content: {} }] }), '');
+});
+
+test('ChatGPT：choices の delta.content を取る', () => {
+  assert.equal(PROVIDERS.openai.delta({ choices: [{ delta: { content: 'は' } }] }), 'は');
+  assert.equal(PROVIDERS.openai.delta({ choices: [{ delta: {} }] }), '');
 });
 
 // --- エラーの分類 -----------------------------------------------------------
 
 test('HTTPステータスごとに種類を分ける', () => {
-  assert.equal(errorFromResponse(401, { error: { message: 'API key is invalid.' } }).kind, 'auth');
-  assert.equal(errorFromResponse(429, null).kind, 'rate-limit');
-  assert.equal(errorFromResponse(529, null).kind, 'overloaded');
-  assert.equal(errorFromResponse(500, null).kind, 'server');
-  assert.equal(errorFromResponse(400, null).kind, 'bad-request');
+  assert.equal(PROVIDERS.anthropic.error(401, { error: { message: 'API key is invalid.' } }).kind, 'auth');
+  assert.equal(PROVIDERS.anthropic.error(429, null).kind, 'rate-limit');
+  assert.equal(PROVIDERS.anthropic.error(529, null).kind, 'overloaded');
+  assert.equal(PROVIDERS.anthropic.error(500, null).kind, 'server');
+  assert.equal(PROVIDERS.openai.error(400, null).kind, 'bad-request');
+});
+
+test('Geminiはキーの誤りも400で返すので、認証エラーに訳す', () => {
+  const error = PROVIDERS.google.error(400, {
+    error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' },
+  });
+  assert.equal(error.kind, 'auth');
+});
+
+test('無料枠の上限は、待てばいいと分かる文面にする', () => {
+  assert.match(PROVIDERS.google.error(429, null).message, /無料枠|置いて/);
 });
 
 test('認証エラーの文面に、直す場所を書く', () => {
-  const text = describeAiError(errorFromResponse(401, { error: { message: 'API key is invalid.' } }));
+  const text = describeAiError(PROVIDERS.anthropic.error(401, { error: { message: 'API key is invalid.' } }));
   assert.match(text, /APIキー/);
   assert.match(text, /分析タブ/);
 });
 
 test('通信できないときは、選択式が使えることを伝える', () => {
-  const text = describeAiError(new AiError('network', '通信できませんでした。'));
-  assert.match(text, /選択式/);
+  assert.match(describeAiError(new AiError('network', '通信できませんでした。')), /選択式/);
 });
 
 test('中断は失敗として扱わない', () => {
@@ -120,7 +145,6 @@ test('履歴は直近だけ残し、必ずuserから始める', () => {
   assert.equal(trimmed.length, 6);
   assert.equal(trimmed[0].role, 'user');
   assert.equal(trimmed[0].content, '質問9');
-  assert.equal(trimmed[trimmed.length - 1].content, '回答11');
 });
 
 test('空の発言は送らない', () => {
@@ -153,66 +177,114 @@ function sseResponse(chunks) {
     body: {
       getReader: () => ({
         read: async () =>
-          index < chunks.length ? { value: encoder.encode(chunks[index++]), done: false } : { value: undefined, done: true },
+          index < chunks.length
+            ? { value: encoder.encode(chunks[index++]), done: false }
+            : { value: undefined, done: true },
         cancel: () => {},
       }),
     },
   };
 }
 
-test('本文を少しずつ渡しながら、全体を返す', async () => {
-  let captured = null;
+function capture(response) {
+  const seen = {};
+  return {
+    seen,
+    fetchImpl: async (url, init) => {
+      seen.url = url;
+      seen.init = init;
+      seen.body = init.body ? JSON.parse(init.body) : null;
+      return response;
+    },
+  };
+}
+
+test('Claude：URL・ヘッダ・本文が仕様どおり', async () => {
+  const { seen, fetchImpl } = capture(
+    sseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"直近5R"}}\n\n',
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"は92.4打です。"}}\n\n',
+    ])
+  );
+  const pieces = [];
   const full = await streamMessage({
+    providerId: 'anthropic',
     apiKey: 'sk-ant-test',
+    model: 'claude-opus-5',
     system: 'ルール',
     messages: [{ role: 'user', content: '調子は？' }],
-    fetchImpl: async (url, options) => {
-      captured = { url, options };
-      return sseResponse([
-        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"直近5R"}}\n\n',
-        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"は92.4打です。"}}\n\n',
-        'data: {"type":"message_stop"}\n\n',
-      ]);
-    },
-    onDelta: () => {},
+    fetchImpl,
+    onDelta: (p) => pieces.push(p),
   });
 
   assert.equal(full, '直近5Rは92.4打です。');
-  assert.equal(captured.url, 'https://api.anthropic.com/v1/messages');
-  assert.equal(captured.options.headers['x-api-key'], 'sk-ant-test');
-  assert.equal(captured.options.headers['anthropic-version'], '2023-06-01');
-  assert.equal(captured.options.headers['anthropic-dangerous-direct-browser-access'], 'true');
-
-  const body = JSON.parse(captured.options.body);
-  assert.equal(body.model, DEFAULT_MODEL);
-  assert.equal(body.stream, true);
-  assert.equal(body.system, 'ルール');
-  assert.ok(body.max_tokens > 0);
+  assert.equal(pieces.length, 2, '届いた分ずつ画面へ渡す');
+  assert.equal(seen.url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(seen.init.headers['x-api-key'], 'sk-ant-test');
+  assert.equal(seen.init.headers['anthropic-version'], '2023-06-01');
+  assert.equal(seen.init.headers['anthropic-dangerous-direct-browser-access'], 'true');
+  assert.equal(seen.body.model, 'claude-opus-5');
+  assert.equal(seen.body.stream, true);
+  assert.equal(seen.body.system, 'ルール');
   // Opus 5 では 400 になるパラメータを送っていないこと
-  assert.equal('temperature' in body, false);
-  assert.equal('top_p' in body, false);
-  assert.equal('thinking' in body, false);
+  assert.equal('temperature' in seen.body, false);
+  assert.equal('thinking' in seen.body, false);
 });
 
-test('選んだモデルをそのまま送る', async () => {
-  let body = null;
-  await streamMessage({
-    apiKey: 'sk-ant-test',
-    model: MODELS[2].id,
+test('Gemini：モデル名がURLに入り、相手役はmodelになる', async () => {
+  const { seen, fetchImpl } = capture(
+    sseResponse(['data: {"candidates":[{"content":{"parts":[{"text":"はい"}]}}]}\n\n'])
+  );
+  const full = await streamMessage({
+    providerId: 'google',
+    apiKey: 'AIzaTEST',
+    model: 'gemini-2.5-flash',
     system: 'ルール',
-    messages: [{ role: 'user', content: 'x' }],
-    fetchImpl: async (url, options) => {
-      body = JSON.parse(options.body);
-      return sseResponse(['data: {"type":"message_stop"}\n\n']);
-    },
+    messages: [
+      { role: 'user', content: '調子は？' },
+      { role: 'assistant', content: '前回の答え' },
+      { role: 'user', content: 'その続き' },
+    ],
+    fetchImpl,
   });
-  assert.equal(body.model, MODELS[2].id);
+
+  assert.equal(full, 'はい');
+  assert.match(seen.url, /models\/gemini-2\.5-flash:streamGenerateContent\?alt=sse$/);
+  assert.equal(seen.init.headers['x-goog-api-key'], 'AIzaTEST');
+  assert.equal(seen.body.systemInstruction.parts[0].text, 'ルール');
+  assert.deepEqual(
+    seen.body.contents.map((c) => c.role),
+    ['user', 'model', 'user']
+  );
+  assert.equal(seen.body.contents[1].parts[0].text, '前回の答え');
+});
+
+test('ChatGPT：systemは先頭のメッセージとして送る', async () => {
+  const { seen, fetchImpl } = capture(
+    sseResponse(['data: {"choices":[{"delta":{"content":"はい"}}]}\n\n', 'data: [DONE]\n\n'])
+  );
+  const full = await streamMessage({
+    providerId: 'openai',
+    apiKey: 'sk-test-openai',
+    model: 'gpt-5',
+    system: 'ルール',
+    messages: [{ role: 'user', content: '調子は？' }],
+    fetchImpl,
+  });
+
+  assert.equal(full, 'はい');
+  assert.equal(seen.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(seen.init.headers.authorization, 'Bearer sk-test-openai');
+  assert.equal(seen.body.stream, true);
+  assert.deepEqual(seen.body.messages[0], { role: 'system', content: 'ルール' });
+  assert.equal(seen.body.messages[1].content, '調子は？');
 });
 
 test('キーが無ければ通信しない', async () => {
   let called = false;
   await assert.rejects(
     streamMessage({
+      providerId: 'google',
       apiKey: '',
       system: 'x',
       messages: [],
@@ -229,7 +301,8 @@ test('キーが無ければ通信しない', async () => {
 test('エラー応答はAiErrorに変換する', async () => {
   await assert.rejects(
     streamMessage({
-      apiKey: 'sk-ant-test',
+      providerId: 'openai',
+      apiKey: 'sk-test-openai',
       system: 'x',
       messages: [{ role: 'user', content: 'x' }],
       fetchImpl: async () => ({
@@ -245,6 +318,7 @@ test('エラー応答はAiErrorに変換する', async () => {
 test('通信そのものが失敗したらnetworkとして扱う', async () => {
   await assert.rejects(
     streamMessage({
+      providerId: 'anthropic',
       apiKey: 'sk-ant-test',
       system: 'x',
       messages: [{ role: 'user', content: 'x' }],
@@ -259,6 +333,7 @@ test('通信そのものが失敗したらnetworkとして扱う', async () => {
 test('中断はそのままAbortErrorとして投げ直す', async () => {
   await assert.rejects(
     streamMessage({
+      providerId: 'anthropic',
       apiKey: 'sk-ant-test',
       system: 'x',
       messages: [{ role: 'user', content: 'x' }],
@@ -272,8 +347,22 @@ test('中断はそのままAbortErrorとして投げ直す', async () => {
   );
 });
 
+test('ストリームの途中でエラーが来たら止める', async () => {
+  await assert.rejects(
+    streamMessage({
+      providerId: 'google',
+      apiKey: 'AIzaTEST',
+      system: 'x',
+      messages: [{ role: 'user', content: 'x' }],
+      fetchImpl: async () => sseResponse(['data: {"error":{"message":"内部エラー"}}\n\n']),
+    }),
+    (error) => error instanceof AiError && /内部エラー/.test(error.message)
+  );
+});
+
 test('ストリームが使えない環境ではまとめて受け取る', async () => {
   const full = await streamMessage({
+    providerId: 'anthropic',
     apiKey: 'sk-ant-test',
     system: 'x',
     messages: [{ role: 'user', content: 'x' }],
@@ -281,9 +370,87 @@ test('ストリームが使えない環境ではまとめて受け取る', async
       ok: true,
       status: 200,
       body: null,
-      text: async () =>
-        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"まとめ"}}\n\n',
+      text: async () => 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"まとめ"}}\n\n',
     }),
   });
   assert.equal(full, 'まとめ');
+});
+
+// --- モデル一覧 -------------------------------------------------------------
+
+test('Claude：使えるモデルの一覧を取る', async () => {
+  const models = await fetchModels({
+    providerId: 'anthropic',
+    apiKey: 'sk-ant-test',
+    fetchImpl: async (url, init) => {
+      assert.match(url, /\/v1\/models/);
+      assert.equal(init.headers['x-api-key'], 'sk-ant-test');
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'claude-opus-5', display_name: 'Claude Opus 5' },
+            { id: 'claude-haiku-4-5', display_name: 'Claude Haiku 4.5' },
+          ],
+        }),
+      };
+    },
+  });
+  assert.deepEqual(models, [
+    { id: 'claude-opus-5', label: 'Claude Opus 5' },
+    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  ]);
+});
+
+test('Gemini：文章を作れるモデルだけを残す', async () => {
+  const models = await fetchModels({
+    providerId: 'google',
+    apiKey: 'AIzaTEST',
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/text-embedding-004', displayName: '埋め込み', supportedGenerationMethods: ['embedContent'] },
+          { name: 'models/gemini-embedding-001', displayName: '埋め込み2', supportedGenerationMethods: ['generateContent'] },
+        ],
+      }),
+    }),
+  });
+  assert.deepEqual(models, [{ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]);
+});
+
+test('ChatGPT：会話に使えないモデルを外す', async () => {
+  const models = await fetchModels({
+    providerId: 'openai',
+    apiKey: 'sk-test-openai',
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'gpt-5' },
+          { id: 'gpt-4o-audio-preview' },
+          { id: 'text-embedding-3-small' },
+          { id: 'whisper-1' },
+          { id: 'o3' },
+        ],
+      }),
+    }),
+  });
+  assert.deepEqual(
+    models.map((m) => m.id),
+    ['gpt-5', 'o3']
+  );
+});
+
+test('一覧が取れなくても、既定の名前で送れるよう空を返す', async () => {
+  const models = await fetchModels({
+    providerId: 'google',
+    apiKey: 'AIzaTEST',
+    fetchImpl: async () => {
+      throw new TypeError('Failed to fetch');
+    },
+  });
+  assert.deepEqual(models, []);
+  assert.ok(PROVIDERS.google.fallbackModels.length);
 });

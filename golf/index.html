@@ -683,23 +683,23 @@
                 登録すると、相談画面で自由に文章を書いて質問できるようになります。未登録のままでも、選択式の質問には
                 これまでどおり答えます（こちらは通信しません）。
               </p>
-              <p class="section-note">
-                キーは <b>console.anthropic.com</b> で自分のアカウントを作り、「API keys」から発行します。
-                発行したキーはこの端末にだけ保存され、クラウド同期には載せません。他人に見せないでください。
-              </p>
-              <p class="section-note">
-                質問するたびに、その時点の記録の要約（スコア・練習・メモ）がAIへ送られ、
-                <b>自分のアカウントに料金がかかります</b>。1回あたり数円程度ですが、無料ではありません。
-              </p>
+              <div class="field">
+                <label for="ai-provider">どこのAIを使うか</label>
+                <select id="ai-provider"></select>
+              </div>
+              <p class="section-note" id="ai-provider-note"></p>
               <div class="field">
                 <label for="ai-key">APIキー</label>
-                <input type="password" id="ai-key" placeholder="sk-ant-..." autocomplete="off" />
+                <input type="password" id="ai-key" placeholder="sk-..." autocomplete="off" />
               </div>
               <div class="field">
                 <label for="ai-model">使うモデル</label>
                 <select id="ai-model"></select>
               </div>
-              <p class="section-note" id="ai-price"></p>
+              <p class="section-note">
+                キーはこの端末にだけ保存され、クラウド同期には載せません。他人に見せないでください。
+                質問するたびに、その時点の記録の要約（スコア・練習・メモ）がそのAIへ送られます。
+              </p>
               <div class="btn-row">
                 <button class="btn-ghost" id="ai-key-clear" type="button">キーを消す</button>
                 <button class="btn-primary" id="ai-key-save" type="button">保存する</button>

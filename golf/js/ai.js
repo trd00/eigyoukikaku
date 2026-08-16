@@ -1,24 +1,18 @@
-// 相談画面から実際のAI（Anthropic Messages API）へ問い合わせる部分。
+// 相談画面から実際のAIへ問い合わせる部分。
 //
 // 方針:
+// - 会社を選べるようにする（Claude / Gemini / ChatGPT）。使う人が自分のキーを貼る。
 // - APIキーは利用者本人のもので、この端末のlocalStorageにだけ置く。クラウド同期には載せない。
-// - ブラウザから直接叩くため、anthropic-dangerous-direct-browser-access を付ける。
-//   （api.anthropic.com は Access-Control-Allow-Origin: * を返し、このヘッダを許可している）
+// - ブラウザから直接叩く。Anthropic は anthropic-dangerous-direct-browser-access が要る。
+//   （api.anthropic.com と generativelanguage.googleapis.com は、この用途を許可することを実際に確認済み）
 // - 応答はストリーミングで受け取る。待ち時間中に画面が固まらないようにするため。
 // - キーが未設定・通信不可のときは、これまでのローカル回答（consult.js）へ黙って戻す。
+//
+// 注意: サブスク（ChatGPT Plus / Claude Pro など）ではAPIは使えない。APIは別契約。
 
-const STORE_KEY = 'trd-golf-ai-v1';
-const ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const API_VERSION = '2023-06-01';
+const STORE_KEY = 'trd-golf-ai-v2';
+const OLD_STORE_KEY = 'trd-golf-ai-v1';
 
-/** 選べるモデル。料金は 100万トークンあたりの目安（入力／出力）。 */
-export const MODELS = [
-  { id: 'claude-opus-5', label: 'Opus 5（いちばん精度が高い）', price: '入力 $5 / 出力 $25' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5（標準）', price: '入力 $3 / 出力 $15' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5（安い・軽い）', price: '入力 $1 / 出力 $5' },
-];
-
-export const DEFAULT_MODEL = 'claude-opus-5';
 export const DEFAULT_MAX_TOKENS = 4000;
 
 /** 相談画面でAIに守らせる書き方。要件どおり、励ましも叱責も入れない。 */
@@ -36,78 +30,6 @@ export const TONE_RULES = [
 ].join('\n');
 
 // ---------------------------------------------------------------------------
-// 設定の保存
-// ---------------------------------------------------------------------------
-
-function storage() {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
-  } catch {
-    return null; // プライベートブラウズなどで例外になる場合がある
-  }
-}
-
-/** @returns {{apiKey: string, model: string}} */
-export function loadAiConfig() {
-  const store = storage();
-  if (!store) return { apiKey: '', model: DEFAULT_MODEL };
-  try {
-    const raw = store.getItem(STORE_KEY);
-    if (!raw) return { apiKey: '', model: DEFAULT_MODEL };
-    const parsed = JSON.parse(raw);
-    return {
-      apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
-      model: MODELS.some((m) => m.id === parsed.model) ? parsed.model : DEFAULT_MODEL,
-    };
-  } catch {
-    return { apiKey: '', model: DEFAULT_MODEL };
-  }
-}
-
-export function saveAiConfig({ apiKey, model }) {
-  const store = storage();
-  const next = {
-    apiKey: String(apiKey || '').trim(),
-    model: MODELS.some((m) => m.id === model) ? model : DEFAULT_MODEL,
-  };
-  if (store) {
-    try {
-      store.setItem(STORE_KEY, JSON.stringify(next));
-    } catch {
-      // 保存できなくても、その場の会話は続けられる
-    }
-  }
-  return next;
-}
-
-export function clearAiConfig() {
-  const store = storage();
-  if (store) {
-    try {
-      store.removeItem(STORE_KEY);
-    } catch {
-      // 何もしない
-    }
-  }
-}
-
-export function isAiConfigured() {
-  return Boolean(loadAiConfig().apiKey);
-}
-
-/** 貼り間違いをその場で気づけるようにする。形式の確認だけで、正しさは通信して初めて分かる。 */
-export function looksLikeKey(value) {
-  return /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(value || '').trim());
-}
-
-/** 画面に出すとき用。全部は出さない。 */
-export function maskKey(value) {
-  const key = String(value || '').trim();
-  if (key.length <= 12) return key ? '••••' : '';
-  return `${key.slice(0, 11)}…${key.slice(-4)}`;
-}
-
-// ---------------------------------------------------------------------------
 // エラー
 // ---------------------------------------------------------------------------
 
@@ -119,35 +41,305 @@ export class AiError extends Error {
   }
 }
 
-/** HTTPステータスと本文から、利用者に見せる種類へ落とす。 */
-export function errorFromResponse(status, body) {
-  const detail = body?.error?.message ? `（${body.error.message}）` : '';
+function commonError(status, message) {
+  const detail = message ? `（${message}）` : '';
   if (status === 401 || status === 403) return new AiError('auth', `APIキーが違うか、使えない状態です${detail}`);
-  if (status === 400) return new AiError('bad-request', `送った内容をAPIが受け付けませんでした${detail}`);
   if (status === 404) return new AiError('bad-request', `指定したモデルが見つかりません${detail}`);
   if (status === 413) return new AiError('too-large', '送る記録が大きすぎます。メモを減らすか、モデルを変えてください。');
-  if (status === 429) return new AiError('rate-limit', '短時間に送りすぎです。1分ほど置いてから、もう一度送ってください。');
+  if (status === 429) return new AiError('rate-limit', '短時間に送りすぎか、無料枠の上限です。少し置いてから、もう一度送ってください。');
   if (status === 529 || status === 503) return new AiError('overloaded', 'AI側が混み合っています。少し待ってから、もう一度送ってください。');
   if (status >= 500) return new AiError('server', `AI側で問題が起きました${detail}`);
+  if (status === 400) return new AiError('bad-request', `送った内容をAPIが受け付けませんでした${detail}`);
   return new AiError('unknown', `応答を受け取れませんでした（${status}）${detail}`);
 }
 
-/** 画面に出す1行。原因ごとに、次にやることまで書く。 */
-export function describeAiError(error) {
-  if (!error) return '原因の分からない失敗です。';
-  if (error.name === 'AbortError') return '送信を止めました。';
-  if (error instanceof AiError) {
-    if (error.kind === 'no-key') return 'AIのキーが設定されていません。分析タブの「AIに相談する設定」から登録してください。';
-    if (error.kind === 'auth') return `${error.message} 分析タブの「AIに相談する設定」でキーを入れ直してください。`;
-    if (error.kind === 'network')
-      return '通信できませんでした。電波の届く場所で、もう一度送ってください。オフラインのときは選択式の質問だけ使えます。';
-    return error.message;
+// ---------------------------------------------------------------------------
+// 会社ごとの違い
+// ---------------------------------------------------------------------------
+
+/**
+ * それぞれの会社について、URL・ヘッダ・本文・応答の読み方だけを差し替える。
+ * 共通の流れ（送る→少しずつ受け取る→エラーを訳す）は streamMessage 側に置く。
+ */
+export const PROVIDERS = {
+  anthropic: {
+    id: 'anthropic',
+    label: 'Claude（Anthropic）',
+    keyPlaceholder: 'sk-ant-...',
+    keySite: 'console.anthropic.com',
+    keyHelp: 'console.anthropic.com でアカウントを作り、「API keys」から発行します。',
+    costNote: '無料枠なし。使った分だけ自分のアカウントに請求されます（Opus 5 で 入力$5／出力$25 per 1Mトークン）。',
+    subscriptionNote: 'Claude Pro / Max のサブスクとは別契約です。サブスクではAPIは使えません。',
+    fallbackModels: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+    validateKey: (value) => /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(value),
+    modelsRequest: (apiKey) => ({
+      url: 'https://api.anthropic.com/v1/models?limit=100',
+      init: {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+      },
+    }),
+    parseModels: (json) =>
+      (json?.data || [])
+        .map((m) => ({ id: m.id, label: m.display_name || m.id }))
+        .filter((m) => m.id),
+    request: ({ apiKey, model, system, messages, maxTokens }) => ({
+      url: 'https://api.anthropic.com/v1/messages',
+      init: {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, system, messages }),
+      },
+    }),
+    delta: (event) => {
+      if (event?.type !== 'content_block_delta') return '';
+      const d = event.delta || {};
+      // thinking_delta（内部の考え）は画面に出さない
+      return d.type === 'text_delta' && typeof d.text === 'string' ? d.text : '';
+    },
+    streamError: (event) => (event?.type === 'error' ? event.error?.message || null : null),
+    error: (status, body) => commonError(status, body?.error?.message),
+  },
+
+  google: {
+    id: 'google',
+    label: 'Gemini（Google）',
+    keyPlaceholder: 'AIza...',
+    keySite: 'aistudio.google.com',
+    keyHelp: 'aistudio.google.com にGoogleアカウントで入り、「Get API key」から発行します。カード登録なしで作れます。',
+    costNote:
+      '無料枠があります（1分あたり・1日あたりの回数に上限あり）。上限を超えると、待つか有料に切り替えることになります。',
+    subscriptionNote:
+      '無料枠では、送った内容がGoogleの製品改善に使われる場合があるとGoogleは説明しています。気になる場合は有料枠か他社を選んでください。',
+    fallbackModels: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+    validateKey: (value) => /^AIza[A-Za-z0-9_-]{20,}$/.test(value),
+    modelsRequest: (apiKey) => ({
+      url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
+      init: { headers: { 'x-goog-api-key': apiKey } },
+    }),
+    parseModels: (json) =>
+      (json?.models || [])
+        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map((m) => ({ id: String(m.name || '').replace(/^models\//, ''), label: m.displayName || m.name }))
+        .filter((m) => m.id && !/embedding|aqa/i.test(m.id)),
+    request: ({ apiKey, model, system, messages, maxTokens }) => ({
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+      init: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          // Geminiは相手役を model と呼ぶ
+          contents: messages.map((m) => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+          })),
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
+      },
+    }),
+    delta: (event) => {
+      const parts = event?.candidates?.[0]?.content?.parts || [];
+      return parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('');
+    },
+    streamError: (event) => event?.error?.message || null,
+    error: (status, body) => {
+      const message = body?.error?.message;
+      // Googleはキーの誤りも400で返す
+      if (status === 400 && /API key not valid|API_KEY_INVALID/i.test(message || '')) {
+        return new AiError('auth', 'APIキーが違うか、使えない状態です');
+      }
+      if (status === 400 && /quota|billing/i.test(message || '')) {
+        return new AiError('rate-limit', '無料枠の上限に達しています。時間を置くか、有料に切り替えてください。');
+      }
+      return commonError(status, message);
+    },
+  },
+
+  openai: {
+    id: 'openai',
+    label: 'ChatGPT（OpenAI）',
+    keyPlaceholder: 'sk-...',
+    keySite: 'platform.openai.com',
+    keyHelp: 'platform.openai.com でアカウントを作り、「API keys」から発行します。',
+    costNote: '無料枠なし。先に金額をチャージするか、支払い方法の登録が要ります。',
+    subscriptionNote: 'ChatGPT Plus / Pro のサブスクとは別契約です。サブスクではAPIは使えません。',
+    fallbackModels: ['gpt-5', 'gpt-5-mini', 'gpt-4o'],
+    validateKey: (value) => /^sk-[A-Za-z0-9_-]{20,}$/.test(value),
+    modelsRequest: (apiKey) => ({
+      url: 'https://api.openai.com/v1/models',
+      init: { headers: { authorization: `Bearer ${apiKey}` } },
+    }),
+    parseModels: (json) =>
+      (json?.data || [])
+        .map((m) => ({ id: m.id, label: m.id }))
+        .filter(
+          (m) =>
+            m.id &&
+            /^(gpt-|o\d)/.test(m.id) &&
+            !/audio|realtime|image|embedding|tts|whisper|moderation|transcribe|search|instruct/i.test(m.id)
+        )
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    request: ({ apiKey, model, system, messages, maxTokens }) => ({
+      url: 'https://api.openai.com/v1/chat/completions',
+      init: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          max_completion_tokens: maxTokens,
+          messages: [{ role: 'system', content: system }, ...messages],
+        }),
+      },
+    }),
+    delta: (event) => {
+      const piece = event?.choices?.[0]?.delta?.content;
+      return typeof piece === 'string' ? piece : '';
+    },
+    streamError: (event) => event?.error?.message || null,
+    error: (status, body) => commonError(status, body?.error?.message),
+  },
+};
+
+export const PROVIDER_LIST = [PROVIDERS.google, PROVIDERS.anthropic, PROVIDERS.openai];
+export const DEFAULT_PROVIDER = 'google';
+
+export function providerOf(id) {
+  return PROVIDERS[id] || PROVIDERS[DEFAULT_PROVIDER];
+}
+
+// ---------------------------------------------------------------------------
+// 設定の保存
+// ---------------------------------------------------------------------------
+
+function storage() {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null; // プライベートブラウズなどで例外になる場合がある
   }
-  const text = String(error.message || error);
-  if (/Failed to fetch|NetworkError|Load failed/i.test(text)) {
-    return '通信できませんでした。電波の届く場所で、もう一度送ってください。';
+}
+
+function emptyConfig() {
+  return { provider: DEFAULT_PROVIDER, keys: {}, models: {}, modelLists: {} };
+}
+
+/** @returns {{provider: string, keys: object, models: object, modelLists: object}} */
+export function loadAiConfig() {
+  const store = storage();
+  if (!store) return emptyConfig();
+  try {
+    const raw = store.getItem(STORE_KEY);
+    if (raw) return normalizeConfig(JSON.parse(raw));
+    // v1（Anthropic専用）で保存されていたものを引き継ぐ
+    const old = store.getItem(OLD_STORE_KEY);
+    if (old) {
+      const parsed = JSON.parse(old);
+      if (parsed?.apiKey) {
+        return normalizeConfig({
+          provider: 'anthropic',
+          keys: { anthropic: parsed.apiKey },
+          models: { anthropic: parsed.model },
+        });
+      }
+    }
+  } catch {
+    // 壊れていたら初期状態として扱う
   }
-  return `送信に失敗しました（${text}）`;
+  return emptyConfig();
+}
+
+function normalizeConfig(parsed) {
+  const config = emptyConfig();
+  if (PROVIDERS[parsed?.provider]) config.provider = parsed.provider;
+  for (const id of Object.keys(PROVIDERS)) {
+    const key = parsed?.keys?.[id];
+    if (typeof key === 'string' && key) config.keys[id] = key;
+    const model = parsed?.models?.[id];
+    if (typeof model === 'string' && model) config.models[id] = model;
+    const list = parsed?.modelLists?.[id];
+    if (Array.isArray(list)) config.modelLists[id] = list.filter((m) => m && m.id);
+  }
+  return config;
+}
+
+export function saveAiConfig(config) {
+  const next = normalizeConfig(config);
+  const store = storage();
+  if (store) {
+    try {
+      store.setItem(STORE_KEY, JSON.stringify(next));
+      store.removeItem(OLD_STORE_KEY);
+    } catch {
+      // 保存できなくても、その場の会話は続けられる
+    }
+  }
+  return next;
+}
+
+/** 今使う会社のキー・モデルを取り出す */
+export function activeConfig(config = loadAiConfig()) {
+  const provider = providerOf(config.provider);
+  const models = modelChoices(config, provider.id);
+  const saved = config.models[provider.id];
+  return {
+    provider,
+    apiKey: config.keys[provider.id] || '',
+    model: saved || models[0]?.id || provider.fallbackModels[0],
+    models,
+  };
+}
+
+/** APIから取れた一覧を優先し、取れていなければ既定の名前を出す */
+export function modelChoices(config, providerId) {
+  const list = config.modelLists?.[providerId];
+  if (Array.isArray(list) && list.length) return list;
+  return providerOf(providerId).fallbackModels.map((id) => ({ id, label: id }));
+}
+
+export function clearAiConfig(providerId) {
+  const config = loadAiConfig();
+  if (!providerId) {
+    const store = storage();
+    if (store) {
+      try {
+        store.removeItem(STORE_KEY);
+        store.removeItem(OLD_STORE_KEY);
+      } catch {
+        // 何もしない
+      }
+    }
+    return emptyConfig();
+  }
+  delete config.keys[providerId];
+  delete config.models[providerId];
+  delete config.modelLists[providerId];
+  return saveAiConfig(config);
+}
+
+export function isAiConfigured() {
+  return Boolean(activeConfig().apiKey);
+}
+
+/** 貼り間違いをその場で気づけるようにする。形式の確認だけで、正しさは通信して初めて分かる。 */
+export function looksLikeKey(value, providerId) {
+  return providerOf(providerId).validateKey(String(value || '').trim());
+}
+
+/** 画面に出すとき用。全部は出さない。 */
+export function maskKey(value) {
+  const key = String(value || '').trim();
+  if (key.length <= 12) return key ? '••••' : '';
+  return `${key.slice(0, 8)}…${key.slice(-4)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +375,7 @@ function parseSseBlock(raw) {
   }
   if (!data.length) return null;
   const text = data.join('\n');
-  if (text === '[DONE]') return null;
+  if (text === '[DONE]') return null; // OpenAIの終わりの合図
   try {
     return JSON.parse(text);
   } catch {
@@ -191,33 +383,26 @@ function parseSseBlock(raw) {
   }
 }
 
-/** 画面に出す本文だけを取り出す。思考（thinking）は取り出さない。 */
-export function textDelta(event) {
-  if (!event || event.type !== 'content_block_delta') return '';
-  const delta = event.delta || {};
-  return delta.type === 'text_delta' && typeof delta.text === 'string' ? delta.text : '';
-}
-
 // ---------------------------------------------------------------------------
 // 送信
 // ---------------------------------------------------------------------------
 
+async function readJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Messages API へ投げ、本文を少しずつ onDelta へ渡す。
- * @param {object} options
- * @param {string} options.apiKey
- * @param {string} [options.model]
- * @param {string} options.system 記録と書き方のルール
- * @param {Array<{role: string, content: string}>} options.messages 会話の履歴
- * @param {number} [options.maxTokens]
- * @param {AbortSignal} [options.signal]
- * @param {(text: string) => void} [options.onDelta]
- * @param {typeof fetch} [options.fetchImpl] テスト用
+ * 選んだ会社のAPIへ投げ、本文を少しずつ onDelta へ渡す。
  * @returns {Promise<string>} 本文全体
  */
 export async function streamMessage({
+  providerId,
   apiKey,
-  model = DEFAULT_MODEL,
+  model,
   system,
   messages,
   maxTokens = DEFAULT_MAX_TOKENS,
@@ -225,48 +410,33 @@ export async function streamMessage({
   onDelta,
   fetchImpl,
 }) {
+  const provider = providerOf(providerId);
   if (!apiKey) throw new AiError('no-key', 'APIキーが設定されていません。');
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
   if (!doFetch) throw new AiError('network', 'この環境では通信できません。');
 
+  const { url, init } = provider.request({
+    apiKey,
+    model: model || provider.fallbackModels[0],
+    system,
+    messages,
+    maxTokens,
+  });
+
   let response;
   try {
-    response = await doFetch(ENDPOINT, {
-      method: 'POST',
-      signal,
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': API_VERSION,
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        stream: true,
-        system,
-        messages,
-      }),
-    });
+    response = await doFetch(url, { ...init, signal });
   } catch (error) {
     if (error && error.name === 'AbortError') throw error;
     throw new AiError('network', '通信できませんでした。');
   }
 
-  if (!response.ok) {
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {
-      // 本文が読めないこともある
-    }
-    throw errorFromResponse(response.status, body);
-  }
+  if (!response.ok) throw provider.error(response.status, await readJson(response));
 
   if (!response.body || typeof response.body.getReader !== 'function') {
     // ストリームが使えない環境向け。まとめて受け取ってから同じ形に均す。
     const text = await response.text();
-    return collectFromSse(text, onDelta);
+    return collect(provider, text.endsWith('\n\n') ? text : `${text}\n\n`, onDelta);
   }
 
   const reader = response.body.getReader();
@@ -278,8 +448,9 @@ export async function streamMessage({
       const { value, done } = await reader.read();
       if (done) break;
       for (const event of parser.push(decoder.decode(value, { stream: true }))) {
-        if (event.type === 'error') throw new AiError('server', event.error?.message || 'AI側が応答を中断しました。');
-        const piece = textDelta(event);
+        const failure = provider.streamError(event);
+        if (failure) throw new AiError('server', failure);
+        const piece = provider.delta(event);
         if (piece) {
           full += piece;
           if (onDelta) onDelta(piece);
@@ -296,17 +467,58 @@ export async function streamMessage({
   return full;
 }
 
-function collectFromSse(text, onDelta) {
+function collect(provider, text, onDelta) {
   const parser = createSseParser();
   let full = '';
-  for (const event of parser.push(text.endsWith('\n\n') ? text : `${text}\n\n`)) {
-    const piece = textDelta(event);
+  for (const event of parser.push(text)) {
+    const piece = provider.delta(event);
     if (piece) {
       full += piece;
       if (onDelta) onDelta(piece);
     }
   }
   return full;
+}
+
+/**
+ * 使えるモデルの一覧をAPIから取る。取れなければ空を返し、呼び出し側は既定の名前を使う。
+ */
+export async function fetchModels({ providerId, apiKey, fetchImpl }) {
+  const provider = providerOf(providerId);
+  const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+  if (!doFetch || !apiKey) return [];
+  const { url, init } = provider.modelsRequest(apiKey);
+  let response;
+  try {
+    response = await doFetch(url, init);
+  } catch {
+    return [];
+  }
+  if (!response.ok) throw provider.error(response.status, await readJson(response));
+  const json = await readJson(response);
+  try {
+    return provider.parseModels(json) || [];
+  } catch {
+    return [];
+  }
+}
+
+/** 画面に出す1行。原因ごとに、次にやることまで書く。 */
+export function describeAiError(error) {
+  if (!error) return '原因の分からない失敗です。';
+  if (error.name === 'AbortError') return '送信を止めました。';
+  if (error instanceof AiError) {
+    if (error.kind === 'no-key') return 'AIのキーが設定されていません。分析タブの「AIに相談する設定」から登録してください。';
+    if (error.kind === 'auth') return `${error.message} 分析タブの「AIに相談する設定」でキーを入れ直してください。`;
+    if (error.kind === 'network')
+      return '通信できませんでした。電波の届く場所で、もう一度送ってください。オフラインのときは選択式の質問だけ使えます。';
+    return error.message;
+  }
+  const text = String(error.message || error);
+  if (/Failed to fetch|NetworkError|Load failed/i.test(text)) {
+    return '通信できませんでした。電波の届く場所で、もう一度送ってください。';
+  }
+  return `送信に失敗しました（${text}）`;
 }
 
 /**
