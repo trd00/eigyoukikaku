@@ -42,6 +42,8 @@ export function defaultState(today = todayJST()) {
       focusAreas: [],
       currentAverage: null,
       practiceMinutes: 15,
+      // スコアカードに出る自分の名前。写真から読み取るとき、自分の列を選ぶのに使う
+      cardName: '',
     },
     daily: {},
     carry: SEED_CARRY.reduce((acc, c) => {

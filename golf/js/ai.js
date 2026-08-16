@@ -86,6 +86,20 @@ export const PROVIDERS = {
       (json?.data || [])
         .map((m) => ({ id: m.id, label: m.display_name || m.id }))
         .filter((m) => m.id),
+    // 画像は本文より前に置く（そのほうが読み取りが安定する）
+    toMessages: (messages) =>
+      messages.map((m) => ({
+        role: m.role,
+        content: m.images?.length
+          ? [
+              ...m.images.map((img) => ({
+                type: 'image',
+                source: { type: 'base64', media_type: img.mediaType, data: img.data },
+              })),
+              { type: 'text', text: m.content },
+            ]
+          : m.content,
+      })),
     request: ({ apiKey, model, system, messages, maxTokens }) => ({
       url: 'https://api.anthropic.com/v1/messages',
       init: {
@@ -96,7 +110,13 @@ export const PROVIDERS = {
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true',
         },
-        body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, system, messages }),
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          stream: true,
+          system,
+          messages: PROVIDERS.anthropic.toMessages(messages),
+        }),
       },
     }),
     delta: (event) => {
@@ -130,6 +150,17 @@ export const PROVIDERS = {
         .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
         .map((m) => ({ id: String(m.name || '').replace(/^models\//, ''), label: m.displayName || m.name }))
         .filter((m) => m.id && !/embedding|aqa/i.test(m.id)),
+    // Geminiは相手役を model と呼ぶ
+    toMessages: (messages) =>
+      messages.map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [
+          ...(m.images || []).map((img) => ({
+            inlineData: { mimeType: img.mediaType, data: img.data },
+          })),
+          { text: m.content },
+        ],
+      })),
     request: ({ apiKey, model, system, messages, maxTokens }) => ({
       url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
       init: {
@@ -137,11 +168,7 @@ export const PROVIDERS = {
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
-          // Geminiは相手役を model と呼ぶ
-          contents: messages.map((m) => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
-          })),
+          contents: PROVIDERS.google.toMessages(messages),
           generationConfig: { maxOutputTokens: maxTokens },
         }),
       },
@@ -188,6 +215,21 @@ export const PROVIDERS = {
             !/audio|realtime|image|embedding|tts|whisper|moderation|transcribe|search|instruct/i.test(m.id)
         )
         .sort((a, b) => a.id.localeCompare(b.id)),
+    toMessages: (messages) =>
+      messages.map((m) =>
+        m.images?.length
+          ? {
+              role: m.role,
+              content: [
+                ...m.images.map((img) => ({
+                  type: 'image_url',
+                  image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+                })),
+                { type: 'text', text: m.content },
+              ],
+            }
+          : { role: m.role, content: m.content }
+      ),
     request: ({ apiKey, model, system, messages, maxTokens }) => ({
       url: 'https://api.openai.com/v1/chat/completions',
       init: {
@@ -197,7 +239,7 @@ export const PROVIDERS = {
           model,
           stream: true,
           max_completion_tokens: maxTokens,
-          messages: [{ role: 'system', content: system }, ...messages],
+          messages: [{ role: 'system', content: system }, ...PROVIDERS.openai.toMessages(messages)],
         }),
       },
     }),
@@ -478,6 +520,11 @@ function collect(provider, text, onDelta) {
     }
   }
   return full;
+}
+
+/** 1回だけ聞いて、返事を全部まとめて受け取る（画像の読み取りなど、途中経過が要らない用途） */
+export function askOnce(options) {
+  return streamMessage({ ...options, onDelta: undefined });
 }
 
 /**

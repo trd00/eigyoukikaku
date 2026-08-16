@@ -1,7 +1,7 @@
 // 通信が不安定な場所（打ちっぱなし・ゴルフ場）でも起動できるようにする。
 // 個人データはService Workerを経由せず、localStorageだけに保持する。
 
-const CACHE = 'trd-golf-v11';
+const CACHE = 'trd-golf-v12';
 const ASSETS = [
   './',
   './index.html',
@@ -19,6 +19,7 @@ const ASSETS = [
   './js/date.js',
   './js/diagnose.js',
   './js/menu.js',
+  './js/scorecard.js',
   './js/seed.js',
   './js/stats.js',
   './js/store.js',

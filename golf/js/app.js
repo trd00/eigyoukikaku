@@ -56,6 +56,7 @@ import * as cloud from './cloud.js';
 import { FOCUS_OPTIONS, buildWeeklyPlan, describePlan, restDaysOf } from './plan.js';
 import { QUESTIONS, answerFor, buildConsultPrompt } from './consult.js';
 import * as ai from './ai.js';
+import { buildScorecardPrompt, describeDraft, parseScorecardReply, toDraft } from './scorecard.js';
 import { memoFeedback } from './feedback.js';
 import { mergeStates, stamp } from './merge.js';
 
@@ -1650,6 +1651,134 @@ const SCORE_FIELDS = {
   nextFocus: '#sc-next',
 };
 
+// ---------------------------------------------------------------------------
+// 写真・スクリーンショットからスコアを読み取る
+// ---------------------------------------------------------------------------
+
+let shotParsed = null; // 直前に読み取った内容（列を選び直すときに使う）
+
+/**
+ * 送る前に縮める。カートの画面のスクショは大きく、そのまま送ると
+ * 通信量と料金が跳ね上がるうえ、読み取りが速くならない。
+ */
+function shrinkImage(file, maxSide = 1400) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      resolve({ mediaType: 'image/jpeg', data: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('画像を読み込めませんでした'));
+    };
+    image.src = url;
+  });
+}
+
+function shotStatus(text, kind = '') {
+  const wrap = $('#shot-result');
+  clear(wrap);
+  if (text) wrap.appendChild(el('p', { class: `shot-status ${kind}`.trim(), text }));
+  return wrap;
+}
+
+async function importFromImage(file) {
+  const active = ai.activeConfig();
+  if (!active.apiKey) {
+    shotStatus(
+      '写真の読み取りにはAIの設定が要ります。分析タブの「AIに相談する設定」からキーを登録してください（Geminiなら無料枠で始められます）。',
+      'warn'
+    );
+    return;
+  }
+
+  shotStatus('画像を読み取っています…');
+  try {
+    const image = await shrinkImage(file);
+    const courses = courseList(state);
+    const reply = await ai.askOnce({
+      providerId: active.provider.id,
+      apiKey: active.apiKey,
+      model: active.model,
+      system: 'あなたは画像から数字を正確に書き写す係です。読み取れないものは推測せず null にします。',
+      maxTokens: 2000,
+      messages: [
+        {
+          role: 'user',
+          content: buildScorecardPrompt({ myName: state.settings.cardName, courses, today }),
+          images: [image],
+        },
+      ],
+    });
+    shotParsed = parseScorecardReply(reply);
+    applyShotDraft(toDraft(shotParsed, { courses, myName: state.settings.cardName }));
+  } catch (error) {
+    shotStatus(ai.describeAiError(error), 'warn');
+  }
+}
+
+/** 読み取った内容をフォームに入れ、確認すべき点を並べる */
+function applyShotDraft(draft) {
+  const wrap = shotStatus('');
+  const v = draft.values;
+
+  fillCourseSelect($('#sc-course'), v.courseId);
+  if (v.date) $('#sc-date').value = v.date;
+  $('#sc-holes').value = String(v.holes);
+  $('#sc-out').value = v.outScore ?? '';
+  $('#sc-in').value = v.inScore ?? '';
+  $('#sc-total').value = v.totalScore ?? '';
+  $('#sc-putts').value = v.putts ?? '';
+  $('#sc-id').value = '';
+  updateCourseNote();
+  $('#score-form-group').open = true;
+
+  wrap.appendChild(el('p', { class: 'shot-status ok', text: `読み取りました：${describeDraft(draft)}` }));
+
+  // 同伴者がいるときは、列を選び直せるようにする
+  if (shotParsed && shotParsed.players.length > 1) {
+    const row = el('div', { class: 'shot-players' });
+    shotParsed.players.forEach((player, index) => {
+      row.appendChild(
+        el('button', {
+          class: `consult-chip${index === draft.playerIndex ? ' picked' : ''}`,
+          type: 'button',
+          text: `${player.name || `${index + 1}人目`}${player.total === null ? '' : ` ${player.total}`}`,
+          onclick: () =>
+            applyShotDraft(
+              toDraft(shotParsed, {
+                playerIndex: index,
+                courses: courseList(state),
+                myName: state.settings.cardName,
+              })
+            ),
+        })
+      );
+    });
+    wrap.appendChild(el('p', { class: 'section-note', style: 'margin:8px 0 4px', text: '自分の列を選んでください' }));
+    wrap.appendChild(row);
+  }
+
+  for (const warning of draft.warnings) {
+    wrap.appendChild(el('p', { class: 'shot-status warn', text: warning }));
+  }
+  wrap.appendChild(
+    el('p', {
+      class: 'section-note',
+      text: '数字が合っているか確認してから「保存する」を押してください。読み違いはこの場で直せます。',
+    })
+  );
+  $('#score-form-group').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function renderScore() {
   const rounds = sortByDateDesc(allRounds(state));
   $('#score-count').textContent = `${rounds.length}件`;
@@ -1980,6 +2109,9 @@ function editRound(round) {
 }
 
 function clearScoreForm() {
+  // 読み取り結果の表示も一緒に消す（次の1件と混ざらないように）
+  shotParsed = null;
+  clear($('#shot-result'));
   for (const sel of Object.values(SCORE_FIELDS)) $(sel).value = '';
   $('#sc-id').value = '';
   $('#sc-date').value = today;
@@ -2176,6 +2308,8 @@ function renderProfileStatus() {
   if (!wrap) return;
   const toggle = $('#advice-toggle');
   if (toggle) toggle.checked = adviceEnabled();
+  const cardName = $('#card-name');
+  if (cardName) cardName.value = state.settings.cardName || '';
   clear(wrap);
   const name = state.profileName || '（名前未設定）';
   const rounds = allRounds(state).length;
@@ -2554,6 +2688,17 @@ function bindEvents() {
   };
   $('#sc-out').addEventListener('input', syncTotal);
   $('#sc-in').addEventListener('input', syncTotal);
+  $('#shot-pick').addEventListener('click', () => $('#shot-file').click());
+  $('#shot-file').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) importFromImage(file);
+    e.target.value = ''; // 同じ写真をもう一度選べるようにする
+  });
+  $('#card-name').addEventListener('change', () => {
+    state.settings.cardName = $('#card-name').value.trim();
+    persist('保存しました');
+  });
+
   $('#sc-course').addEventListener('change', (e) => {
     if (e.target.value === '__new') {
       e.target.value = '';

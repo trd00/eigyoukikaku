@@ -336,6 +336,17 @@
       <div class="view" id="view-score" hidden>
         <section class="card">
           <p class="card-title">スコアを登録</p>
+          <div class="shot-import" id="shot-import">
+            <button class="btn-primary" id="shot-pick" type="button" style="width: 100%">
+              写真・スクショから読み取る
+            </button>
+            <input type="file" id="shot-file" accept="image/*" hidden />
+            <p class="section-note" id="shot-note" style="margin-top: 8px">
+              ラウンド後のカートの画面やスコアカードを撮ると、数字を読み取ってこの下の欄に入れます。
+              保存する前に必ず自分で確認してください。
+            </p>
+            <div id="shot-result"></div>
+          </div>
           <details class="group" id="score-form-group">
             <summary id="score-form-summary">＋ 新しいラウンドを登録する</summary>
             <div class="group-body">
@@ -711,6 +722,13 @@
         <section class="card">
           <p class="card-title">利用者</p>
           <div id="profile-status"></div>
+          <div class="field" style="margin-top: 12px">
+            <label for="card-name">スコアカードに出る名前</label>
+            <input type="text" id="card-name" placeholder="例：寺戸" autocomplete="off" />
+            <p class="inline-note">
+              写真からスコアを読み取るとき、同伴者の中から自分の列を選ぶのに使います。カートの画面に出る表記のまま入れてください。
+            </p>
+          </div>
           <label class="focus-option" style="margin-top: 12px">
             <input type="checkbox" id="advice-toggle" />
             <span>診断とアドバイスを表示する</span>

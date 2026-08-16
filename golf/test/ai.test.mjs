@@ -454,3 +454,65 @@ test('一覧が取れなくても、既定の名前で送れるよう空を返�
   assert.deepEqual(models, []);
   assert.ok(PROVIDERS.google.fallbackModels.length);
 });
+
+// --- 画像 -------------------------------------------------------------------
+
+const IMAGE = { mediaType: 'image/jpeg', data: 'BASE64DATA' };
+
+test('Claude：画像は本文より前の image ブロックにする', async () => {
+  const { seen, fetchImpl } = capture(sseResponse(['data: {"type":"message_stop"}\n\n']));
+  await streamMessage({
+    providerId: 'anthropic',
+    apiKey: 'sk-ant-test',
+    system: 'x',
+    messages: [{ role: 'user', content: '読み取って', images: [IMAGE] }],
+    fetchImpl,
+  });
+  const content = seen.body.messages[0].content;
+  assert.equal(content[0].type, 'image');
+  assert.equal(content[0].source.media_type, 'image/jpeg');
+  assert.equal(content[0].source.data, 'BASE64DATA');
+  assert.deepEqual(content[1], { type: 'text', text: '読み取って' });
+});
+
+test('Gemini：画像は inlineData にする', async () => {
+  const { seen, fetchImpl } = capture(sseResponse(['data: {"candidates":[]}\n\n']));
+  await streamMessage({
+    providerId: 'google',
+    apiKey: 'AIzaTEST',
+    model: 'gemini-2.5-flash',
+    system: 'x',
+    messages: [{ role: 'user', content: '読み取って', images: [IMAGE] }],
+    fetchImpl,
+  });
+  const parts = seen.body.contents[0].parts;
+  assert.deepEqual(parts[0], { inlineData: { mimeType: 'image/jpeg', data: 'BASE64DATA' } });
+  assert.deepEqual(parts[1], { text: '読み取って' });
+});
+
+test('ChatGPT：画像は data URL にする', async () => {
+  const { seen, fetchImpl } = capture(sseResponse(['data: [DONE]\n\n']));
+  await streamMessage({
+    providerId: 'openai',
+    apiKey: 'sk-test-openai',
+    model: 'gpt-5',
+    system: 'x',
+    messages: [{ role: 'user', content: '読み取って', images: [IMAGE] }],
+    fetchImpl,
+  });
+  const content = seen.body.messages[1].content;
+  assert.equal(content[0].image_url.url, 'data:image/jpeg;base64,BASE64DATA');
+  assert.deepEqual(content[1], { type: 'text', text: '読み取って' });
+});
+
+test('画像が無ければ、これまでどおり文字列のまま送る', async () => {
+  const { seen, fetchImpl } = capture(sseResponse(['data: {"type":"message_stop"}\n\n']));
+  await streamMessage({
+    providerId: 'anthropic',
+    apiKey: 'sk-ant-test',
+    system: 'x',
+    messages: [{ role: 'user', content: '調子は？' }],
+    fetchImpl,
+  });
+  assert.equal(seen.body.messages[0].content, '調子は？');
+});

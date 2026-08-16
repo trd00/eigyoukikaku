@@ -1254,6 +1254,41 @@ details.group > .group-body {
   overflow-y: auto;
 }
 
+/* ---------- 写真からの読み取り ---------- */
+.shot-import {
+  margin-bottom: 12px;
+}
+
+.shot-status {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card-2);
+  color: var(--off);
+}
+
+.shot-status.ok {
+  border-left: 3px solid var(--lime);
+}
+
+.shot-status.warn {
+  border-left: 3px solid var(--partial);
+  color: var(--partial);
+}
+
+.shot-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.consult-chip.picked {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
 /* AI利用時：例は横1行だけにして、入力欄と本文の場所を空ける */
 .consult-chips.compact {
   flex-wrap: nowrap;
